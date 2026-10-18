@@ -9,10 +9,10 @@
 #   /private     OPTIONAL, read-only: gba_bios.bin + mario_kart_super_circuit_usa.gba, used only
 #                for the post-build smoke test; never copied into the image.
 #
-# Environment: VERSION (required), JOBS (default 8).
+# Environment: VERSION and ENGINE_REV (required), JOBS (default 4).
 set -euo pipefail
 : "${VERSION:?VERSION is required}"
-JOBS="${JOBS:-8}"
+JOBS="${JOBS:-4}"
 GAME=/src/game ENGINE=/src/engine UI=/src/ui OUT=/out
 NAME="MarioKartSuperCircuitRecomp-linux-x86_64-v${VERSION}"
 export CC=gcc-12 CXX=g++-12
@@ -29,7 +29,8 @@ echo "== MarioKartSuperCircuitRecomp"
 cmake -S "$GAME" -B /build/mksc -G Ninja -DCMAKE_BUILD_TYPE=Release \
     "-DCMAKE_CXX_FLAGS_RELEASE=-O3 -DNDEBUG" -DGBARECOMP_NETPLAY=ON -DCMAKE_PREFIX_PATH=/build/sdl-install \
     -DGBARECOMP_ROOT="$ENGINE" -DRECOMP_UI_ROOT="$UI" -DGBARECOMP_RUNTIME_UI_ROOT="$UI" \
-    -DGBARECOMP_BUILD_ORACLE=OFF > /build/mksc-configure.log 2>&1 \
+    -DGBARECOMP_BUILD_ORACLE=OFF -DGBARECOMP_ENGINE_REVISION="${ENGINE_REV:?ENGINE_REV is required}" \
+    > /build/mksc-configure.log 2>&1 \
     || { tail -40 /build/mksc-configure.log; exit 1; }
 ninja -C /build/mksc -j "$JOBS" MarioKartSuperCircuitRecomp > /build/mksc-build.log 2>&1 \
     || { grep -E "error|FAILED" /build/mksc-build.log | head -40; exit 1; }
@@ -111,7 +112,8 @@ if [[ -f /private/gba_bios.bin && -f /private/mario_kart_super_circuit_usa.gba ]
     SMOKE=$(mktemp -d)
     trap 'rm -rf "$SMOKE"' EXIT
     ( cd "$SMOKE" && MARIOKARTSUPERCIRCUITRECOMP_HOME="$SMOKE/home" APPIMAGE_EXTRACT_AND_RUN=1 \
-        timeout 600 "$OUT/$NAME.AppImage" --no-launcher --no-window --frames 1500 \
+        SDL_AUDIODRIVER=dummy GBARECOMP_STRICT_STATIC=1 GBARECOMP_SELFHEAL_RECOMPILE=0 \
+        timeout 600 "$OUT/$NAME.AppImage" --no-launcher --no-window --frames 6000 \
         --bios /private/gba_bios.bin --rom /private/mario_kart_super_circuit_usa.gba \
         --save-path "$SMOKE/home/smoke.sav" > "$SMOKE/run.log" 2>&1 ) || { tail -40 "$SMOKE/run.log"; exit 1; }
     grep -E "cpu_backend|self_heal_coverage" "$SMOKE/run.log" || true
