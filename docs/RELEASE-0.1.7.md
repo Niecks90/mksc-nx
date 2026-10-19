@@ -47,3 +47,34 @@ A separate Direct3D11 upload probe requests 32768x160: the host selects
 16384x80 once, reuses that surface, then successfully resizes and uploads a
 4544x2560 frame. The browser host/runtime also compile with Emscripten;
 browser output still uses its existing native-density protocol.
+
+## Final package evidence
+
+Engine source: `23f43770682e6bb06358c80ded8590f8a6ccbbf0`. Title source at
+build time: `2339fb8`; subsequent validation documentation does not change
+runtime source, CMake configuration or submodule pins. Every fixed 16:9 path
+uses 284x160, matching adaptive rounding and the netplay view.
+
+The final packaged Windows native-1x and Linux adaptive-16x executables complete
+360 cold-boot/no-input ticks in both rollback and delay-sync modes. Complete
+1,402,786-byte canonical states match within each mode, without ignored fields:
+
+- rollback: `316098462bfe44a594004158eeebd5c385a775b3cd8854e5a06a34a0dd5a779f`.
+- delay-sync: `2e66a113ef7f0a31ed2eff2b78433d37ce5c34d9b4674be6d6c19b36a25529fa`.
+
+This qualifies the observed package pair and bounded setup. It does not claim
+cross-version compatibility, race-stage network coverage or a long Internet
+session. The source compatibility gate remains unchanged.
+
+Actual Windows package observations use nine saved-mod / explicit Display
+combinations, 120 presentations each. Fixed-view 4x/8x/16x snapshots match
+exactly with a frozen test RTC. Native retains its own presentation framebuffer.
+The new source produces the same published 8x/16x capture bytes. Frame timings
+vary with host load and are not a full-speed promise.
+
+Final distributable SHA-256 values:
+
+- `MarioKartSuperCircuitRecomp-windows-x64-v0.1.7.zip`: `8a2d56f35aed382eb72997cf5c413c2f9b592d7a8fcbc76b059bd7513aedc305`.
+- `MarioKartSuperCircuitRecomp-linux-x86_64-v0.1.7.AppImage`: `8388fe1de71e645e1eddda4156fe98cc75d5ab55cb4648a307967ca838d3233b`.
+- `8x-16-9.png`: `259a6e5a493117121c2e38b9f26a756febe83bf6c304e9542369ed2141a8e5ca`.
+- `16x-16-9.png`: `d1fa426618e51ccca6620e899e4d7d56f6b3742ed8ee8b8f36e5c17fcb70bce3`.
