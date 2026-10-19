@@ -33,11 +33,17 @@ enable_testing()
 add_executable(mksc_extended_view_tests
     tests/extended_view_tests.cpp
     "${GBARECOMP_ROOT}/tools/bios_smoke/dispatch_stub.cpp"
-    src/mksc_extended_view.cpp)
+    src/mksc_extended_view.cpp src/mksc_margin_objects.cpp)
 target_include_directories(mksc_extended_view_tests PRIVATE
     src "${GBARECOMP_ROOT}/src/runtime")
 target_link_gbarecomp_runtime_stack(mksc_extended_view_tests)
 add_test(NAME mksc_extended_view COMMAND mksc_extended_view_tests)
+
+add_executable(mksc_margin_objects_tests tests/margin_objects_tests.cpp
+    "${GBARECOMP_ROOT}/tools/bios_smoke/dispatch_stub.cpp" src/mksc_margin_objects.cpp)
+target_include_directories(mksc_margin_objects_tests PRIVATE src "${GBARECOMP_ROOT}/src/runtime")
+target_link_gbarecomp_runtime_stack(mksc_margin_objects_tests)
+add_test(NAME mksc_margin_objects COMMAND mksc_margin_objects_tests)
 
 set(GBA_GAME_GENERATED_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/generated" CACHE PATH
     "Generated native corpus (may point at an independent qualification build)")
@@ -53,8 +59,10 @@ file(GLOB GAME_GENERATED_SOURCES CONFIGURE_DEPENDS
 add_executable(MarioKartSuperCircuitRecomp
     src/main.cpp
     src/mksc_extended_view.cpp
+    src/mksc_margin_objects.cpp
     src/mods/mksc_adaptive_view_plugin.cpp
     src/mods/mksc_track_60fps_plugin.cpp
+    src/mods/mksc_internal_resolution_plugin.cpp
     ${GAME_GENERATED_SOURCES})
 
 # Keep every generated guest shard cheaper to compile than the runtime. The
@@ -62,9 +70,14 @@ add_executable(MarioKartSuperCircuitRecomp
 set(GAME_RECOMPILED_SOURCES ${GAME_GENERATED_SOURCES})
 list(FILTER GAME_RECOMPILED_SOURCES INCLUDE REGEX
     "/recompiled_[0-9]+\\.cpp$")
+set(MKSC_GENERATED_OPTIMIZATION "O1" CACHE STRING "Generated CPU optimization: O1 or O2")
+set_property(CACHE MKSC_GENERATED_OPTIMIZATION PROPERTY STRINGS O1 O2)
+if(NOT MKSC_GENERATED_OPTIMIZATION MATCHES "^(O1|O2)$")
+    message(FATAL_ERROR "MKSC_GENERATED_OPTIMIZATION must be O1 or O2")
+endif()
 if(GAME_RECOMPILED_SOURCES)
     set_source_files_properties(${GAME_RECOMPILED_SOURCES} PROPERTIES
-        COMPILE_OPTIONS "-O1;-g0")
+        COMPILE_OPTIONS "-${MKSC_GENERATED_OPTIMIZATION};-g0")
 endif()
 
 target_include_directories(MarioKartSuperCircuitRecomp PRIVATE

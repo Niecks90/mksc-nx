@@ -32,6 +32,7 @@ int main(int argc, char** argv) {
         "aadc8b9f3c947ff6f610b6c8d7fddaaa9bea98b4bd43576df84f26c457ae1f90");
     opts.netplay->view_policy = {true, true, mksc::install_extended_view,
         nullptr, mksc::reset_extended_view};
+    opts.netplay->view_policy.high_resolution_affine_provider = &mksc::high_resolution_affine_provider;
     try { gbarecomp::parse_gba_netplay_arguments(args,*opts.netplay); }
     catch (const std::exception& e) { std::fprintf(stderr,"netplay: %s\n",e.what()); return 1; }
 #endif
@@ -40,6 +41,7 @@ int main(int argc, char** argv) {
     opts.builtin_rom_crc32 = 0xED316E37u;
     opts.mod_game_id = "mario-kart-super-circuit-us";
     opts.mod_owns_adaptive_view = true;
+    opts.high_resolution_affine_provider = &mksc::high_resolution_affine_provider;
     opts.max_resize_view_width = 480;
     opts.resize_driven_view = true;
     opts.extended_view_init = &mksc::install_extended_view;

@@ -1,4 +1,5 @@
 #include "mksc_extended_view.h"
+#include "mksc_margin_objects.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -11,6 +12,7 @@
 
 extern "C" unsigned g_ws_extra_left;
 extern "C" unsigned g_ws_extra_right;
+extern "C" unsigned long long g_runtime_state_epoch;
 
 namespace mksc {
 namespace {
@@ -20,8 +22,10 @@ int (*g_previous_bg_x_provider)(int, int, int, int*) = nullptr;
 int (*g_previous_obj_attr_x_provider)(int, std::uint16_t, std::uint16_t,
                                       std::uint16_t, int*) = nullptr;
 int (*g_previous_affine_filter_provider)(int, int) = nullptr;
+const gba::WsMarginObjPixel* (*g_previous_margin_objects)(int,int*,int*) = nullptr;
 const gba::GbaBus* cached_bus = nullptr;
 unsigned long long cached_vblank = ~0ull;
+unsigned long long cached_epoch = ~0ull;
 bool cached_race = false;
 
 struct HudRect {
@@ -135,9 +139,11 @@ bool race_layout(const gba::GbaBus* bus) {
     // The providers below are hot (the BG remapper runs per output pixel).
     // Scene identity cannot change inside one emulated frame, so inspect the
     // game-owned tilemap only once per VBlank rather than six times per pixel.
-    if (cached_bus != bus || cached_vblank != g_runtime_vblank_starts) {
+    if (cached_bus != bus || cached_vblank != g_runtime_vblank_starts ||
+        cached_epoch != g_runtime_state_epoch) {
         cached_bus = bus;
         cached_vblank = g_runtime_vblank_starts;
+        cached_epoch = g_runtime_state_epoch;
         cached_race = compute_race_layout(bus);
     }
     return cached_race;
@@ -293,6 +299,8 @@ int race_hud_obj_x_provider(int oam_index, std::uint16_t attr0,
         return 1;
     }
 
+    if (bus && race_layout(bus) &&
+        margin_object_x(oam_index, attr0, attr1, attr2, out_x)) return 1;
     return g_previous_obj_attr_x_provider
         ? g_previous_obj_attr_x_provider(
               oam_index, attr0, attr1, attr2, out_x)
@@ -307,9 +315,28 @@ int race_affine_filter_provider(int bg, int screen_y) {
         : 0;
 }
 
+const gba::WsMarginObjPixel* race_margin_objects(int y,int* left,int* width) {
+    const auto* bus=gbarecomp::active_bus();
+    if (bus && race_layout(bus)) return margin_objects(y,left,width);
+    return g_previous_margin_objects ? g_previous_margin_objects(y,left,width) : nullptr;
+}
+
 }  // namespace
 
+bool high_resolution_affine_provider(int bg, int screen_y) {
+    // Sampling density is independent of HUD placement/scene recognition.
+    // Course previews and the fly-in already use affine BG2 before the race
+    // HUD exists. Waiting for its LAP tiles caused a visible quality switch.
+    const auto* bus = gbarecomp::active_bus();
+    return bg == 2 && screen_y >= 0 && screen_y < 160 && bus &&
+           (read16(bus->io().raw(), 0) & 0x87) == 1;
+}
+
 void install_extended_view(std::uint32_t, std::uint32_t) {
+    if (gba::g_ws_obj_margin_provider != race_margin_objects) {
+        g_previous_margin_objects=gba::g_ws_obj_margin_provider;
+        gba::g_ws_obj_margin_provider=race_margin_objects;
+    }
     if (gba::g_ws_tilemap_provider != race_tilemap_provider) {
         g_previous_tilemap_provider = gba::g_ws_tilemap_provider;
         gba::g_ws_tilemap_provider = race_tilemap_provider;
@@ -338,7 +365,9 @@ void install_extended_view(std::uint32_t, std::uint32_t) {
 void reset_extended_view() {
     cached_bus = nullptr;
     cached_vblank = ~0ull;
+    cached_epoch = ~0ull;
     cached_race = false;
+    reset_margin_objects();
 }
 
 }  // namespace mksc
