@@ -73,6 +73,8 @@ while read -r soname path; do
 done
 patchelf --set-rpath '$ORIGIN/../lib' "$APPDIR/usr/bin/MarioKartSuperCircuitRecomp"
 for so in "$APPDIR"/usr/lib/*.so*; do patchelf --set-rpath '$ORIGIN' "$so"; done
+test "$("$APPDIR/usr/bin/MarioKartSuperCircuitRecomp" --version)" = "MarioKartSuperCircuitRecomp v$VERSION" \
+    || { echo "packaged executable version mismatch"; exit 1; }
 test -f "$APPDIR/usr/lib/libSDL2-2.0.so.0" || { echo "SDL2 was not bundled"; exit 1; }
 
 echo "== BYOR guard (no ROM / BIOS in the image)"

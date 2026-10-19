@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(MarioKartSuperCircuitRecomp VERSION 0.1.5 LANGUAGES C CXX)
+project(MarioKartSuperCircuitRecomp VERSION 0.1.6 LANGUAGES C CXX)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 20)
@@ -95,6 +95,7 @@ target_link_libraries(MarioKartSuperCircuitRecomp PRIVATE
     "-Wl,--end-group")
 
 target_compile_definitions(MarioKartSuperCircuitRecomp PRIVATE
+    MKSC_VERSION="${PROJECT_VERSION}"
     GBARECOMP_DEFAULT_DEBUG_PORT=19872
     GBARECOMP_WINDOW_TITLE="MarioKartSuperCircuitRecomp"
     GBARECOMP_DEFAULT_GAME_CONFIG="game.toml")

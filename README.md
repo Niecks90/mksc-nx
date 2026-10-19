@@ -19,13 +19,16 @@ own legally obtained dumps.
 
 ## Status
 
-The current release is `v0.1.4` for Windows x64 and Linux x86_64. The game
+The current release is `v0.1.6` for Windows x64 and Linux x86_64. The game
 boots and runs through menus, cup selection, races, and results, and two
 players can link over the Internet or LAN with emulated link-cable netplay
 (see [`docs/NETPLAY.md`](docs/NETPLAY.md)). `v0.1.3` fixes cartridge saving,
 including Time Trial ghosts, by reporting the correct 64 KB flash chip identity.
 `v0.1.4` fixes delay-sync netplay checkpoint timeouts and keeps the Time Trial
 speedometer together when Adaptive Widescreen is enabled.
+`v0.1.6` adds optional 2x/3x/4x internal resolution, keeps the course fly-in
+at the selected sampling density, and extends roadside billboards into the
+Adaptive Widescreen margins. Sprites and HUD retain their original artwork.
 
 This is still an experimental preview; back up important saves and please
 report repeatable gameplay or presentation edge cases.

@@ -14,6 +14,8 @@ param(
     [string]$BuildDir = 'build-release',
     [string]$GbarecompRoot = '',
     [string]$RecompUiRoot = '',
+    [string]$GeneratedRoot = '',
+    [string]$GeneratedBiosDir = '',
     [ValidateRange(1, 32)][int]$Jobs = 4
 )
 
@@ -30,11 +32,19 @@ if (-not $GbarecompRoot) { $GbarecompRoot = Join-Path $root 'gbarecomp' }
 $engine = (Resolve-Path $GbarecompRoot).Path
 if (-not $RecompUiRoot) { $RecompUiRoot = Join-Path $root 'recomp-ui' }
 $ui = (Resolve-Path -LiteralPath $RecompUiRoot).Path
+if (-not $GeneratedRoot) { $GeneratedRoot = Join-Path $root 'generated' }
+if (-not $GeneratedBiosDir) { $GeneratedBiosDir = Join-Path $engine 'src\runtime\generated_bios' }
+$generatedRootPath = (Resolve-Path -LiteralPath $GeneratedRoot).Path
+$generatedBiosPath = (Resolve-Path -LiteralPath $GeneratedBiosDir).Path
+$git = (Get-Command git.exe).Source
+if (Test-Path -LiteralPath 'C:\Program Files\Git\cmd\git.exe') {
+    $git = 'C:\Program Files\Git\cmd\git.exe'
+}
 foreach ($entry in @(@('gbarecomp', $engine), @('recomp-ui', $ui))) {
-    $pin = ((git -C $root ls-tree HEAD $entry[0]) -split '\s+')[2]
-    $head = (git -C $entry[1] rev-parse HEAD).Trim()
+    $pin = ((& $git -C $root ls-tree HEAD $entry[0]) -split '\s+')[2]
+    $head = (& $git -C $entry[1] rev-parse HEAD).Trim()
     if ($head -ne $pin) { throw "$($entry[0]) must match pinned commit $pin" }
-    if (git -C $entry[1] status --porcelain --untracked-files=no) {
+    if (& $git -C $entry[1] status --porcelain --untracked-files=no) {
         throw "$($entry[0]) has uncommitted tracked changes"
     }
 }
@@ -54,8 +64,8 @@ foreach ($required in @(
     (Join-Path $mingwBin 'strip.exe'),
     (Join-Path $engine 'CMakeLists.txt'),
     (Join-Path $engine 'tools\fetch_tcc.ps1'),
-    (Join-Path $engine 'src\runtime\generated_bios\bios_recompiled.cpp'),
-    (Join-Path $engine 'src\runtime\generated_bios\bios_recompiled.h'),
+    (Join-Path $generatedBiosPath 'bios_recompiled.cpp'),
+    (Join-Path $generatedBiosPath 'bios_recompiled.h'),
     (Join-Path $root 'recomp\launcher\boxart.tga')
 )) {
     if (-not (Test-Path -LiteralPath $required)) {
@@ -63,7 +73,7 @@ foreach ($required in @(
     }
 }
 
-$generated = @(Get-ChildItem -LiteralPath (Join-Path $root 'generated') `
+$generated = @(Get-ChildItem -LiteralPath $generatedRootPath `
     -Filter 'recompiled_*.cpp' -File -ErrorAction SilentlyContinue)
 if ($generated.Count -eq 0) {
     throw 'Generated guest shards are missing. Supply the verified ROM and run tools\regen.ps1 first.'
@@ -79,6 +89,8 @@ New-Item -ItemType Directory -Force -Path $out | Out-Null
     -DCMAKE_BUILD_TYPE=Release `
     "-DCMAKE_CXX_FLAGS_RELEASE=-O3 -DNDEBUG" `
     -DGBARECOMP_ROOT="$engine" `
+    "-DGBA_GAME_GENERATED_ROOT=$generatedRootPath" `
+    "-DGBARECOMP_GENERATED_BIOS_DIR=$generatedBiosPath" `
     -DRECOMP_UI_ROOT="$ui" `
     -DGBARECOMP_RUNTIME_UI_ROOT="$ui" `
     -DGBARECOMP_NETPLAY=ON `
@@ -95,6 +107,10 @@ $exe = Join-Path $build "$target.exe"
 if (-not (Test-Path -LiteralPath $exe)) { throw "Expected executable is missing: $exe" }
 & (Join-Path $mingwBin 'strip.exe') $exe
 if ($LASTEXITCODE -ne 0) { throw "strip failed ($LASTEXITCODE)." }
+$binaryVersion = (& $exe --version).Trim()
+if ($LASTEXITCODE -ne 0 -or $binaryVersion -ne "$target v$Version") {
+    throw "Executable version does not match archive: '$binaryVersion' versus v$Version"
+}
 
 if (Test-Path -LiteralPath $stage) {
     $resolvedStage = (Resolve-Path -LiteralPath $stage).Path
@@ -170,7 +186,9 @@ It has no affiliation with or endorsement from Nintendo.
 3. Select your legally obtained Mario Kart: Super Circuit (USA) ROM.
    Expected SHA-1: $expectedSha1
 4. Select your legally obtained retail gba_bios.bin under Settings > System.
-5. Open Mods to opt into Adaptive Widescreen or 60 FPS, then select PLAY.
+5. Open Mods to enable Higher Internal Resolution and choose 2x, 3x or 4x.
+   Adaptive Widescreen and 60 FPS Track Rendering are separate optional mods.
+6. Select PLAY.
 
 Display, audio, input, and enhancement settings persist locally. Keyboard
 defaults: arrows = D-pad, X = A, Z = B, C = L, V = R, Enter = Start,

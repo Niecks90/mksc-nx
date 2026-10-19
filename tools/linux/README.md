@@ -28,5 +28,7 @@ Requires FUSE 2 (`libfuse2`) like any AppImage; without it, run with
 
 ## Enhancement mods
 
-Open **Mods** to enable the optional Adaptive Widescreen and 60 FPS track
-renderer enhancements for single-player play. Netplay has its own view setting.
+Open **Mods** to enable **Higher Internal Resolution** and select 2x, 3x or 4x.
+It works with the separate **Adaptive Widescreen** mod. Sprites and HUD retain
+their original artwork. **60 FPS Track Rendering** is also optional.
+Netplay has its own view setting.

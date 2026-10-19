@@ -58,7 +58,7 @@ with (output / 'run.log').open('w', encoding='utf-8') as log:
 elapsed = time.perf_counter() - started
 log = (output / 'run.log').read_text(encoding='utf-8', errors='replace')
 required = ['self_heal_coverage=FULLY_STATIC dispatch_misses=0 interpreted_insns=0 healed_native=0',
-            'unmapped=0 io_unhandled=0', 'bounded_run ']
+            'unmapped=0 io_unhandled=0']
 # Windowed runs suppress some ordinary asset/backend banners. Validate the
 # supplied retail inputs independently; do not mistake a quiet banner for a
 # failed BIOS execution path. This harness clears all legacy HLE overrides.
@@ -66,7 +66,7 @@ if hashlib.sha1(args.bios.read_bytes()).hexdigest() != '300c20df6731a33952ded8c4
     raise SystemExit('Unexpected retail BIOS input')
 if hashlib.sha1(args.rom.read_bytes()).hexdigest() != '9d327c030c3e2d9007990518594f70c3340ac56f':
     raise SystemExit('Unexpected AMKE0 ROM input')
-if code or any(token not in log for token in required):
+if code or any(token not in log for token in required) or not re.search(r'^bounded_(?:run|window) ', log, re.M):
     raise SystemExit(f'Failed or inconclusive observation (exit {code}): {output / "run.log"}')
 with (output / 'final.png').open('rb') as image:
     header = image.read(24)
@@ -88,7 +88,7 @@ summary = {
     'scale': args.scale, 'window': args.window, 'profiled': args.profile,
     'catalog_selection': args.catalog_selection,
     'process_wall_seconds_including_startup': elapsed, 'image_dimensions': dimensions,
-    'bounded_run': re.search(r'^bounded_run .+$', log, re.M)[0],
+    'bounded_run': re.search(r'^bounded_(?:run|window) .+$', log, re.M)[0],
     'presentation': re.findall(r'^presentation .+$', log, re.M),
     'phase_profile': re.findall(r'^\[phase\].+$', log, re.M),
     'scope': 'One checkpoint and bounded input sequence; not campaign or cross-build netplay qualification.'
