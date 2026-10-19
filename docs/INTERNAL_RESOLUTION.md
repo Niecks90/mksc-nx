@@ -137,3 +137,20 @@ The tool mutes only its child, isolates cartridge saves, preserves logs, validat
 asset hashes and coverage, and checks sampled dimensions and actual HD presents.
 `--catalog-selection` omits the CLI scale to test saved mod activation. Owner
 interactive builds use normal audio by default.
+
+## Local test handoff
+
+`build-pilot-20261019/MarioKartSuperCircuitRecomp.exe` is the staged Windows
+pilot with its required DLLs, recomp-ui assets and all three mod packages.
+Its saved selection enables 4x and Adaptive Widescreen; Track Rendering 60 FPS
+stays disabled. Volume is 100 and no dummy audio setting is persisted. Local
+ROM/BIOS paths are preselected without copying those inputs. Saves are local
+to the pilot directory. The source catalogs remain disabled by default.
+
+The staged executable passed a muted 120-presentation smoke test without an
+added MinGW DLL search path and without a CLI scale override. It presented 118
+complete 1528x640 enhanced frames and reported zero misses/interpreter/unhandled
+IO. Owner launcher interaction and live in-game scale editing remain manual QA.
+The pilot is a local test handoff; it was not published as a release.
+
+Implementation commits: engine `60892e4`, title `a21cccb`. Beads: `beads-7j3s`.
