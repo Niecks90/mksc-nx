@@ -18,6 +18,11 @@ and title, with an explicit `GBARECOMP_ROOT`. The v0.1.6 integration pins the
 updated engine and includes the newer main-branch fixes. Historical pilot
 measurements below name their original fixtures and executables.
 
+The follow-up [8x CPU rendering candidate](HD-PERFORMANCE-2026-10-19.md)
+measures a cached HLE affine sampler against its maintained direct LLE build.
+It improves that matched Windows route by 61.5%, while remaining below full
+speed. Owner gameplay approval and integration are pending; v0.1.7 is unchanged.
+
 ## Boundary
 
 The title authorizes mode-1 BG2 sampling before the race HUD appears, including
