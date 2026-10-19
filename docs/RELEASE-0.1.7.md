@@ -78,3 +78,8 @@ Final distributable SHA-256 values:
 - `MarioKartSuperCircuitRecomp-linux-x86_64-v0.1.7.AppImage`: `8388fe1de71e645e1eddda4156fe98cc75d5ab55cb4648a307967ca838d3233b`.
 - `8x-16-9.png`: `259a6e5a493117121c2e38b9f26a756febe83bf6c304e9542369ed2141a8e5ca`.
 - `16x-16-9.png`: `d1fa426618e51ccca6620e899e4d7d56f6b3742ed8ee8b8f36e5c17fcb70bce3`.
+
+The source screenshots on main were subsequently losslessly recompressed for
+inline display (307,069 bytes at 8x and 815,392 bytes at 16x). Their decoded
+pixel rows and all other PNG chunks match the original release captures.
+The downloadable original captures and package checksums above are unchanged.
