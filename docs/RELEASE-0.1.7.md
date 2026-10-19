@@ -22,6 +22,9 @@ The engine expands its subpixel offset arrays with the scale limit. Large
 surfaces that exceed GPU texture limits are reduced for upload only; the
 effective upload size is logged and cached, without changing the CPU raster
 or guest state.
+Live changes between Native, fixed and adaptive views also reset SDL's logical
+coordinate space and viewport, preventing stale native scaling from cropping
+the wider destination.
 
 Validation uses the owned AMKE USA revision 0 ROM and retail BIOS, never
 distributed with the release. Focused renderer tests check fractional detail,

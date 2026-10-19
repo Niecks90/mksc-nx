@@ -43,7 +43,8 @@ EXCLUDES=(--exclude '.git' --exclude 'build/' --exclude 'build-*/' --exclude 're
           --exclude 'android/.gradle/' --exclude 'android/app/.cxx/')
 rsync -a --delete "${EXCLUDES[@]}" --exclude '/gbarecomp/' --exclude '/recomp-ui/' --exclude 'third_party/mksc/' --exclude 'docs/screenshots/' \
     "$GAME/" "$STAGE/game/"
-rsync -a --delete "${EXCLUDES[@]}" --exclude 'tools/gbaref/' --exclude 'oracle/' "$ENGINE/" "$STAGE/engine/"
+rsync -a --delete "${EXCLUDES[@]}" --exclude 'tools/gbaref/' --exclude 'tools/_toolchain_cache/' \
+    --exclude '.local/' --exclude 'oracle/' "$ENGINE/" "$STAGE/engine/"
 rsync -a --delete "${EXCLUDES[@]}" "$UI/" "$STAGE/ui/"
 MOUNTS=(-v "$STAGE/game:/src/game:ro" -v "$STAGE/engine:/src/engine:ro" -v "$STAGE/ui:/src/ui:ro"
         -v "$OUT:/out")

@@ -186,9 +186,13 @@ It has no affiliation with or endorsement from Nintendo.
 3. Select your legally obtained Mario Kart: Super Circuit (USA) ROM.
    Expected SHA-1: $expectedSha1
 4. Select your legally obtained retail gba_bios.bin under Settings > System.
-5. Open Mods to enable Higher Internal Resolution and choose 2x, 3x or 4x.
-   Adaptive Widescreen and 60 FPS Track Rendering are separate optional mods.
-6. Select PLAY.
+5. Open Mods to enable Higher Internal Resolution and choose 2x, 3x, 4x, 8x or 16x.
+   4x is the initial choice; 8x and especially 16x may run substantially slower.
+6. In Display, choose 16:9 or Adaptive to widen the single-player race view.
+   Native (3:2) keeps side bars on a wide display. Default (Mods) retains the
+   widescreen mod's choices; explicit Display choices take precedence.
+   The Netplay page's view setting applies separately to online play.
+7. Select PLAY.
 
 Display, audio, input, and enhancement settings persist locally. Keyboard
 defaults: arrows = D-pad, X = A, Z = B, C = L, V = R, Enter = Start,
