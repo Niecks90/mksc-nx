@@ -8,9 +8,10 @@ change scale for the current run; `--internal-resolution 1..4` overrides the
 initial mod choice. New artwork is not generated: sprites, HUD and menus retain
 their authored pixels. The perspective road receives actual fractional samples.
 
-This work is on `feature/hd-affine-presentation-20261019` in the engine and title.
-The local build uses an explicit `GBARECOMP_ROOT` pointing at the engine worktree;
-the existing release/submodule pin has not been replaced or published.
+The initial pilot used `feature/hd-affine-presentation-20261019` in the engine
+and title, with an explicit `GBARECOMP_ROOT`. The v0.1.6 integration pins the
+updated engine and includes the newer main-branch fixes. Historical pilot
+measurements below name their original fixtures and executables.
 
 ## Boundary
 
@@ -225,7 +226,8 @@ paced presentations, ending at guest frame 764 with zero coverage/IO failures.
 All 600 presents used the completed 1528x640 surface. No affine samples are
 expected on the title screens reached by that no-input boot.
 Owner launcher interaction and live in-game scale editing remain manual QA.
-The pilot is a local test handoff; it was not published as a release.
+The pilot itself was a local test handoff. The v0.1.6 packages are built
+separately from the integrated source, with clean player settings.
 
 Initial implementation commits: engine `60892e4`, title `a21cccb`.
 Follow-up commits are on the same feature branches; engine diagnostic command:
