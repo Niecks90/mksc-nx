@@ -76,10 +76,28 @@ The actual two-machine game view probe compares every canonical byte for all
 with the cached HLE sampler. Evidence: `hd-perf-20261019/paired.log`. This is a
 local deterministic differential, not an actual transport or cross-build test.
 
-The owner candidate must use the measured HLE executable above, fresh boot,
-8x Adaptive/Fit to screen and normal audio. Keep the existing owner's saves and
-prior playtest directory intact. The owner confirmed improved speed and
+The approved handoff used the measured HLE executable above, fresh boot,
+8x Adaptive/Fit to screen and normal audio. Keep the owner's saves and prior
+playtest directories intact. Future handoffs are windowed unless the owner
+explicitly requests fullscreen. The owner confirmed improved speed and
 authorized default promotion. Engine `ec778f1` and title `9bc2520` are integrated
 on main; the cached HLE sampler is the shared build default. The public v0.1.7
 download remains unchanged. Central issue:
 `beads-bce3`; other selected games in that issue are still pending.
+
+
+## Practical performance guidance after owner playtest
+
+The owner found the further row-reuse candidate still too sluggish at 8x. Its
+additional 7.4% NAS gain (14.509 to 15.581 FPS) does not make 8x usable on that
+older i5-4670/GTX 760, and the desktop handoff also failed the owner's practical
+performance expectation. It remains separate on `perf/hd-row-reuse-20261019`
+(engine `fecdb8d`, title `01d0d79`); its measured gain is not owner acceptance
+for main. The earlier approved cached HLE default remains integrated.
+
+Recommend up to 4x. The optional 8x and 16x choices are labeled `(experimental)`;
+the in-game menu marks every scale above 4x the same way. Neither promises full
+speed. Keep owner-facing handoffs windowed unless explicitly requested otherwise.
+No new handoff is launched for this label change, and the public v0.1.7 archive
+is unchanged. The NAS evidence and the rejected row-reuse handoff remain private
+under `build-release/qa/hd-perf-20261019/` in the integration worktree.

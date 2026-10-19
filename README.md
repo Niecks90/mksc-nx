@@ -62,8 +62,9 @@ These enhancements are optional and disabled by default:
   of stretching the original 240×160 image.
 - **Higher Internal Resolution** samples the perspective track at 2x, 3x, 4x, 8x or 16x.
   It works with Adaptive Widescreen; sprites and HUD keep their original artwork.
-  8x has four times the pixels of 4x; 16x has sixteen times. Full speed is not
-  guaranteed. The widescreen mod also offers **Fit to screen** and **16:9**;
+  Up to 4x is recommended. **8x (experimental)** and **16x (experimental)**
+  may run very slowly: they render four and sixteen times the pixels of 4x.
+  The widescreen mod also offers **Fit to screen** and **16:9**;
   an explicit Display view choice takes precedence over this legacy mod.
 
 Open the launcher's **Mods** page to enable these features. Because they are
