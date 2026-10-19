@@ -9,6 +9,8 @@ void activate_resolution() {
     if (value && std::strcmp(value, "2") == 0) (void)gba_mod_set_internal_resolution(2);
     else if (value && std::strcmp(value, "3") == 0) (void)gba_mod_set_internal_resolution(3);
     else if (value && std::strcmp(value, "4") == 0) (void)gba_mod_set_internal_resolution(4);
+    else if (value && std::strcmp(value, "8") == 0) (void)gba_mod_set_internal_resolution(8);
+    else if (value && std::strcmp(value, "16") == 0) (void)gba_mod_set_internal_resolution(16);
 }
 GBA_MOD_CONSTRUCTOR(register_resolution) {
     (void)gba_mod_register_reset_callback(reset_resolution);

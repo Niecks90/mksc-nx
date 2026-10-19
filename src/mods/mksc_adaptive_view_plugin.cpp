@@ -1,13 +1,19 @@
 #include "mod_runtime.h"
+#include <cstring>
 
 namespace {
 
 void reset_adaptive_view() {
     (void)gba_mod_set_adaptive_view_enabled(0);
+    (void)gba_mod_set_view_width(0);
 }
 
 void activate_adaptive_view() {
-    (void)gba_mod_set_adaptive_view_enabled(1);
+    const char* mode = gba_mod_option_value(
+        "mario-kart-super-circuit.enhancement.adaptive-view", "adaptive-view", "view");
+    const bool fixed = mode && std::strcmp(mode, "16:9") == 0;
+    (void)gba_mod_set_adaptive_view_enabled(fixed ? 0 : 1);
+    (void)gba_mod_set_view_width(fixed ? 284 : 0);
 }
 
 }  // namespace

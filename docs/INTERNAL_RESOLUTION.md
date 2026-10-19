@@ -2,9 +2,14 @@
 
 Implements [issue #12](https://github.com/mstan/MarioKartSuperCircuitRecomp/issues/12)
 for USA AMKE revision 0. Enable **Higher Internal Resolution** in recomp-ui's
-Mods page and select 2x, 3x or 4x. It is disabled by default in the catalog.
+Mods page and select 2x, 3x, 4x, 8x or 16x. It is disabled by default in the catalog;
+4x remains the initial selection. 8x and 16x are demanding and do not guarantee
+full speed. In v0.1.7, Display offers explicit Native, 16:9 and Adaptive views.
+Default (Mods) retains existing widescreen mod settings. Adaptive follows the
+window/display aspect; the mod's corresponding choice is Fit to screen. Netplay
+has its own separate view selection.
 Adaptive Widescreen is independent and supported. In-game display settings can
-change scale for the current run; `--internal-resolution 1..4` overrides the
+change scale for the current run; `--internal-resolution 1..16` overrides the
 initial mod choice. New artwork is not generated: sprites, HUD and menus retain
 their authored pixels. The perspective road receives actual fractional samples.
 

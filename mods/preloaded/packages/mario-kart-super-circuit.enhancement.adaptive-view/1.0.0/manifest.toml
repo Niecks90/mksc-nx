@@ -15,9 +15,24 @@ rom_sha1 = "9d327c030c3e2d9007990518594f70c3340ac56f"
 [[feature]]
 id = "adaptive-view"
 name = "Adaptive Widescreen"
-description = "Expand supported race scenes from 240x160 (native 3:2) up to 480x160 (3:1), following the live window or fullscreen aspect ratio."
+description = "Expand single-player race scenes beyond native 3:2. Choose Fit to screen to follow the window or fullscreen display, or choose a fixed 16:9 view. Menus retain native framing."
 group = "Display"
 default_enabled = false
+
+[[option]]
+feature = "adaptive-view"
+id = "view"
+label = "Race view"
+type = "choice"
+default = "fit"
+
+[[option.choice]]
+value = "fit"
+label = "Fit to screen"
+
+[[option.choice]]
+value = "16:9"
+label = "16:9"
 
 [[plugin]]
 feature = "adaptive-view"

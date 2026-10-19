@@ -19,7 +19,7 @@ own legally obtained dumps.
 
 ## Status
 
-The current release is `v0.1.6` for Windows x64 and Linux x86_64. The game
+The current release is `v0.1.7` for Windows x64 and Linux x86_64. The game
 boots and runs through menus, cup selection, races, and results, and two
 players can link over the Internet or LAN with emulated link-cable netplay
 (see [`docs/NETPLAY.md`](docs/NETPLAY.md)). `v0.1.3` fixes cartridge saving,
@@ -29,6 +29,12 @@ speedometer together when Adaptive Widescreen is enabled.
 `v0.1.6` adds optional 2x/3x/4x internal resolution, keeps the course fly-in
 at the selected sampling density, and extends roadside billboards into the
 Adaptive Widescreen margins. Sprites and HUD retain their original artwork.
+`v0.1.7` adds 8x and 16x internal resolution and single-player Display view
+choices. These higher scales can be substantially slower; 4x remains the mod
+default. In **Display**, choose **16:9** for a fixed wide view or **Adaptive**
+to fit the window or fullscreen display. **Native (3:2)** deliberately keeps
+side bars on a wider display. **Default (Mods)** preserves existing mod choices.
+The Netplay page's view choice applies separately to online play.
 
 This is still an experimental preview; back up important saves and please
 report repeatable gameplay or presentation edge cases.
@@ -54,8 +60,11 @@ These enhancements are optional and disabled by default:
   discovered by **antimattur**.
 - **Adaptive Widescreen** renders additional race content at the sides instead
   of stretching the original 240×160 image.
-- **Higher Internal Resolution** samples the perspective track at 2x, 3x or 4x.
+- **Higher Internal Resolution** samples the perspective track at 2x, 3x, 4x, 8x or 16x.
   It works with Adaptive Widescreen; sprites and HUD keep their original artwork.
+  8x has four times the pixels of 4x; 16x has sixteen times. Full speed is not
+  guaranteed. The widescreen mod also offers **Fit to screen** and **16:9**;
+  an explicit Display view choice takes precedence over this legacy mod.
 
 Open the launcher's **Mods** page to enable these features. Because they are
 experimental, please report repeatable visual or gameplay regressions with the

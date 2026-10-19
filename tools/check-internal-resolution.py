@@ -12,7 +12,7 @@ import time
 parser = argparse.ArgumentParser(description=__doc__)
 for key in ('exe', 'rom', 'bios', 'state', 'config', 'output'):
     parser.add_argument('--' + key, type=Path, required=True)
-parser.add_argument('--scale', type=int, choices=(1, 2, 3, 4), required=True)
+parser.add_argument('--scale', type=int, choices=(1, 2, 3, 4, 8, 16), required=True)
 parser.add_argument('--frames', type=int, default=600)
 parser.add_argument('--window', action='store_true')
 parser.add_argument('--profile', action='store_true')
