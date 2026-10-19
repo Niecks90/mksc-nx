@@ -19,7 +19,7 @@ own legally obtained dumps.
 
 ## Status
 
-The current release is `v0.1.7` for Windows x64 and Linux x86_64. The game
+The current release is `v0.1.8` for Windows x64 and Linux x86_64. The game
 boots and runs through menus, cup selection, races, and results, and two
 players can link over the Internet or LAN with emulated link-cable netplay
 (see [`docs/NETPLAY.md`](docs/NETPLAY.md)). `v0.1.3` fixes cartridge saving,
@@ -35,6 +35,9 @@ default. In **Display**, choose **16:9** for a fixed wide view or **Adaptive**
 to fit the window or fullscreen display. **Native (3:2)** deliberately keeps
 side bars on a wider display. **Default (Mods)** preserves existing mod choices.
 The Netplay page's view choice applies separately to online play.
+`v0.1.8` adds the cached HLE track sampler for lower HD rendering cost. Up to
+4x is recommended; higher scales are labeled **(experimental)** and may still
+run very slowly, even with the optimization.
 
 This is still an experimental preview; back up important saves and please
 report repeatable gameplay or presentation edge cases.

@@ -29,8 +29,9 @@ Requires FUSE 2 (`libfuse2`) like any AppImage; without it, run with
 ## Enhancement mods
 
 Open **Mods** to enable **Higher Internal Resolution** and select 2x, 3x, 4x,
-8x or 16x. 4x is the initial choice. 8x and especially 16x may run substantially
-slower; full speed is not guaranteed. Sprites and HUD retain
+8x or 16x. 4x is the initial choice and recommended maximum. **8x (experimental)**
+and **16x (experimental)** may run very slowly; full speed is not guaranteed.
+Sprites and HUD retain
 their original artwork. **60 FPS Track Rendering** is also optional.
 
 In **Display**, choose **16:9** or **Adaptive** to widen single-player races.
