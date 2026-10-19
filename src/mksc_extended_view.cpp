@@ -309,6 +309,12 @@ int race_affine_filter_provider(int bg, int screen_y) {
 
 }  // namespace
 
+bool high_resolution_affine_provider(int bg, int screen_y) {
+    const auto* bus = gbarecomp::active_bus();
+    return bg == 2 && screen_y >= 0 && screen_y < 160 && bus &&
+           (read16(bus->io().raw(), 0) & 7) == 1 && race_layout(bus);
+}
+
 void install_extended_view(std::uint32_t, std::uint32_t) {
     if (gba::g_ws_tilemap_provider != race_tilemap_provider) {
         g_previous_tilemap_provider = gba::g_ws_tilemap_provider;

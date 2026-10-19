@@ -42,6 +42,7 @@ debug_port = 19872
 window_title = "MarioKartSuperCircuitRecomp"
 
 [video]
+internal_resolution = 1 # Optional mod or CLI can select 2x, 3x or 4x.
 screen = "frontlit"
 widescreen = 0
 sharp_filter = true

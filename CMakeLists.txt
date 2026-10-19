@@ -55,6 +55,7 @@ add_executable(MarioKartSuperCircuitRecomp
     src/mksc_extended_view.cpp
     src/mods/mksc_adaptive_view_plugin.cpp
     src/mods/mksc_track_60fps_plugin.cpp
+    src/mods/mksc_internal_resolution_plugin.cpp
     ${GAME_GENERATED_SOURCES})
 
 # Keep every generated guest shard cheaper to compile than the runtime. The
@@ -62,9 +63,14 @@ add_executable(MarioKartSuperCircuitRecomp
 set(GAME_RECOMPILED_SOURCES ${GAME_GENERATED_SOURCES})
 list(FILTER GAME_RECOMPILED_SOURCES INCLUDE REGEX
     "/recompiled_[0-9]+\\.cpp$")
+set(MKSC_GENERATED_OPTIMIZATION "O1" CACHE STRING "Generated CPU optimization: O1 or O2")
+set_property(CACHE MKSC_GENERATED_OPTIMIZATION PROPERTY STRINGS O1 O2)
+if(NOT MKSC_GENERATED_OPTIMIZATION MATCHES "^(O1|O2)$")
+    message(FATAL_ERROR "MKSC_GENERATED_OPTIMIZATION must be O1 or O2")
+endif()
 if(GAME_RECOMPILED_SOURCES)
     set_source_files_properties(${GAME_RECOMPILED_SOURCES} PROPERTIES
-        COMPILE_OPTIONS "-O1;-g0")
+        COMPILE_OPTIONS "-${MKSC_GENERATED_OPTIMIZATION};-g0")
 endif()
 
 target_include_directories(MarioKartSuperCircuitRecomp PRIVATE

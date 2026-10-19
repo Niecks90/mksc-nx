@@ -8,7 +8,7 @@
 > [Recomp + AI: 5 Months Later »](https://1379.tech/recomp-ai-5-months-later/).
 
 Static recompilation of **Mario Kart: Super Circuit** for Windows and Linux, with
-optional 60 FPS and Adaptive Widescreen mods.
+optional 60 FPS, Adaptive Widescreen and Higher Internal Resolution mods.
 
 Special thanks to **antimattur** for the Mario Kart: Super Circuit
 decompilation work and for discovering the 60 FPS patch; that foundation made
@@ -44,15 +44,17 @@ launcher on boot** if you want later launches to go directly into the game.
 
 ## Included mods
 
-Both enhancements are optional and disabled by default:
+These enhancements are optional and disabled by default:
 
 - **60 FPS Track Rendering** updates race presentation at 60 FPS while
   preserving the game's underlying logic and timing, based on the patch
   discovered by **antimattur**.
 - **Adaptive Widescreen** renders additional race content at the sides instead
   of stretching the original 240×160 image.
+- **Higher Internal Resolution** samples the perspective track at 2x, 3x or 4x.
+  It works with Adaptive Widescreen; sprites and HUD keep their original artwork.
 
-Open the launcher's **Mods** page to enable either feature. Because both are
+Open the launcher's **Mods** page to enable these features. Because they are
 experimental, please report repeatable visual or gameplay regressions with the
 course, mode, and character used.
 
@@ -61,7 +63,7 @@ course, mode, and character used.
 - Native Windows x64 application and Linux x86_64 AppImage
 - ROM and BIOS setup through the shared
   [recomp-ui](https://github.com/mstan/recomp-ui) launcher
-- Optional 60 FPS and Adaptive Widescreen mods
+- Optional 60 FPS, Adaptive Widescreen and Higher Internal Resolution mods
 - Two-player link-cable netplay with rollback or input delay
 - Keyboard and modern game-controller support
 - Windowed and fullscreen play with sharp scaling and optional affine

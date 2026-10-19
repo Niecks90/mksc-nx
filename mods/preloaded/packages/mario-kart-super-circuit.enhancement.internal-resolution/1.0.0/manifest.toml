@@ -1,0 +1,43 @@
+format_version = 1
+id = "mario-kart-super-circuit.enhancement.internal-resolution"
+version = "1.0.0"
+name = "Mario Kart: Super Circuit Higher Internal Resolution"
+author = "mstan"
+description = "Render the race track with finer samples while keeping the original sprites and HUD artwork."
+license = "MIT"
+resolver = "declarative"
+save_compatibility = "shared"
+
+[[target]]
+game_id = "mario-kart-super-circuit-us"
+rom_sha1 = "9d327c030c3e2d9007990518594f70c3340ac56f"
+
+[[feature]]
+id = "internal-resolution"
+name = "Higher Internal Resolution"
+description = "Add detail to the perspective track. Works with Adaptive Widescreen; menus and original artwork retain their authored pixels."
+group = "Graphics"
+default_enabled = false
+
+[[option]]
+feature = "internal-resolution"
+id = "scale"
+label = "Internal resolution"
+type = "choice"
+default = "4"
+
+[[option.choice]]
+value = "2"
+label = "2x"
+
+[[option.choice]]
+value = "3"
+label = "3x"
+
+[[option.choice]]
+value = "4"
+label = "4x"
+
+[[plugin]]
+feature = "internal-resolution"
+id = "mario-kart-super-circuit.internal-resolution"
