@@ -10,6 +10,7 @@
 extern "C" {
 unsigned g_ws_extra_left = 0;
 unsigned g_ws_extra_right = 0;
+extern unsigned long long g_runtime_state_epoch;
 }
 namespace {
 int failures = 0;
@@ -87,6 +88,22 @@ int main() {
           "results/menu scenes are excluded");
     check(gba::g_ws_bg_x_provider(0, 40, 116, &x) == 0,
           "results/menu backgrounds are excluded");
+    race(*bus,true);
+    check(gba::g_ws_obj_attr_x_provider(7,0x0168,0xc1f8,0x73c0,&x)==1,
+          "race policy is populated before restore");
+    bus->write16(0x06003808,0);++g_runtime_state_epoch;
+    check(gba::g_ws_obj_attr_x_provider(7,0x0168,0xc1f8,0x73c0,&x)==0,
+          "restore invalidates scene policy even at the same frame number");
+    check(mksc::high_resolution_affine_provider(2,100),
+          "affine sampling stays enabled before/without the race HUD");
+    bus->write16(0x04000000,0x3f01);
+    check(mksc::high_resolution_affine_provider(2,100),
+          "course-intro windows do not switch sampling quality");
+    check(!mksc::high_resolution_affine_provider(0,100) &&
+          !mksc::high_resolution_affine_provider(2,160),
+          "only actual affine BG2 raster rows are authorized");
+    bus->write16(0x04000000,0x1f00);
+    check(!mksc::high_resolution_affine_provider(2,100),"regular text BG2 remains native");
     gbarecomp::set_active_bus(nullptr);
     check(gba::g_ws_obj_attr_x_provider(7, 0x0168, 0xC1F8, 0x73C0, &x) == 0,
           "no active game is a no-op");

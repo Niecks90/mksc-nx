@@ -14,8 +14,9 @@ the existing release/submodule pin has not been replaced or published.
 
 ## Boundary
 
-The title authorizes BG2 only during its recognized mode-1 race layout. The
-engine consumes each published raster row, preserves layer/window/blend order,
+The title authorizes mode-1 BG2 sampling before the race HUD appears, including
+course previews and the fly-in. Widescreen/HUD placement still uses its stricter
+race-layout recognition. The engine consumes each published raster row, preserves layer/window/blend order,
 and reconstructs intermediate affine samples into a separate surface. Vertical
 subline transforms extrapolate adjacent published rows; this is an optional
 presentation approximation. It neither runs extra DMA nor alters guest memory,
@@ -121,7 +122,8 @@ no new assembly, SIMD requirement or GPU readback behavior was introduced.
 Configure this title against the updated engine using `-DGBARECOMP_ROOT=<engine>`
 and the ordinary verified generated ROM/BIOS corpus. The pilot reused the
 previously qualified, unedited 64-shard corpus, not handwritten generated fixes.
-Build `MarioKartSuperCircuitRecomp`, `mksc_extended_view_tests`, and optionally
+Build `MarioKartSuperCircuitRecomp`, `mksc_extended_view_tests`,
+`mksc_margin_objects_tests`, and optionally
 `MarioKartSuperCircuitRecompViewProbe` for the local paired differential.
 
 Run one observation with the actual local paths:
@@ -138,19 +140,93 @@ asset hashes and coverage, and checks sampled dimensions and actual HD presents.
 `--catalog-selection` omits the CLI scale to test saved mod activation. Owner
 interactive builds use normal audio by default.
 
+## Course intro and roadside objects follow-up
+
+Owner QA found that the fly-in initially used native road samples and switched
+abruptly when the HUD appeared. The sampling permission incorrectly depended
+on LAP/TIME tiles. It now depends on the affine display mode, independently of
+HUD placement. `tools/check-course-intro.py` drives the ordinary cup selection
+inputs, records native and enhanced frames, and checks increasing affine work
+through the visible pre-HUD fly-in. An optional checkpoint must precede frame
+8200 on that route. The checked 8360..8640 sequence stays at 960x640 with fresh
+affine samples; all 23 captured native image hashes match the baseline. The
+baseline had no enhanced affine samples through frame 8640.
+
+The original game also omits roadside objects outside its narrow draw region.
+Expanding an existing OAM sprite alone cannot recover an object never submitted
+to OAM. `mksc_margin_objects.cpp` reads AMKE0's resident actor lists, camera,
+sprite cells and mip selections, projects missing opaque billboards, and supplies
+pixels only in the margins. Static scenery uses the expanded geometric frustum
+instead of the original checkpoint draw slice. Dynamic actors retain their
+scene policy. Matching existing OAM pieces are reused, including their unwrapped
+local X beyond the signed nine-bit boundary at 256. No guest memory, OAM, ROM,
+AI, timing or native center pixels are modified. Presentation caches invalidate
+on restore, including a restore to the same frame, and on width changes.
+
+The verified AMKE0 layout has race state at `03002E44`, camera at `03003668`,
+and active lists at race offsets `6F4`, `704` and `714`. The original draw path
+at `08049B0C` calls projection `0802F638` and horizontal clipping `0802F674`.
+Cell center decoding preserves the original scaled-X asymmetry at `0802F91C`.
+These are ROM/layout facts; generated CPU bodies remain unedited.
+
+The focused tests cover unseen objects on both sides, original and expanded
+edges, X=255/256, real mip/palette changes, native OAM reuse, malformed/cyclic
+lists, same-frame restore, resize and exact canonical device-state equality.
+Both title tests pass. The shared high-resolution, bus and presentation-mirror
+tests also pass under the HLE and LLE build selections.
+
+An ordinary acceleration/steering input route found a never-submitted tree at
+frame 9016, projected X=-66. At the actual 382x160 adaptive view, before/after
+4x images add 528 sampled tree pixels at the expanded left edge, with zero
+changed pixels in the original 240-pixel center. The fixture SHA-256 is
+`42e434b6ef63e3a9e11ae5600fd9c28699554c3829607d3c079160850fc2c559`.
+An additional ordinary-input pose at frame 9092 has a native-projected tree
+at X=299, beyond signed OAM X=255. Its comparison adds 2,864 sampled pixels
+across the two margins, including that right-side tree, with zero center
+changes. Its fixture SHA-256 is
+`72908de65df2dbba9931102bfa31e895bda927ef7de693301bfe71121f2c2edf`.
+These three-presentation comparisons check visibility, not performance.
+For the left-edge comparison, CPU0, IO_0, AUD0, SAV0, PPU0 and META match exactly; BUS0 differs only
+at the inactive offline RTC timestamp, byte 395310. Raw snapshots are retained.
+
+The final paired-session differential again passes all 72 frames and twelve-frame
+restore/replay checks across the views/scales described above, comparing every
+canonical byte. Margin diagnostics record actual rendered pixels in the wider
+views. Neither this nor the offline RTC observation claims cross-build netplay
+compatibility. Actual tree evidence covers Peach Circuit; an all-course prop
+audit, other ROM revisions and translucent/OBJ-window billboard cells remain
+unverified. The new provider handles opaque billboard cells.
+
+Evidence is under `build-hd/qa/intro-hd-final`, `tree-edge-before`,
+`tree-edge-after`, `tree-edge-right-before`, `tree-edge-right-after` and
+`netplay-visibility-final`. Follow-up executable SHA-256:
+`2ff2d087108dcae3152f2285c3a136be87cb0c3193df775baa31c11415d616fc`.
+
 ## Local test handoff
 
-`build-pilot-20261019/MarioKartSuperCircuitRecomp.exe` is the staged Windows
-pilot with its required DLLs, recomp-ui assets and all three mod packages.
+`build-pilot-visibility-20261019/MarioKartSuperCircuitRecomp.exe` is the updated
+Windows pilot with both follow-up fixes, its required DLLs, recomp-ui assets
+and all three mod packages. `build-pilot-20261019` is the earlier pilot and
+does not contain these fixes.
 Its saved selection enables 4x and Adaptive Widescreen; Track Rendering 60 FPS
 stays disabled. Volume is 100 and no dummy audio setting is persisted. Local
 ROM/BIOS paths are preselected without copying those inputs. Saves are local
 to the pilot directory. The source catalogs remain disabled by default.
 
-The staged executable passed a muted 120-presentation smoke test without an
+The original staged executable passed a muted 120-presentation smoke test without an
 added MinGW DLL search path and without a CLI scale override. It presented 118
 complete 1528x640 enhanced frames and reported zero misses/interpreter/unhandled
-IO. Owner launcher interaction and live in-game scale editing remain manual QA.
+IO. The updated visibility pilot independently passed the same 120-presentation
+packaging check from the left-edge fixture, using its saved mod selection,
+with 118 complete 1528x640 enhanced frames and zero coverage/IO failures.
+Required DLL imports and the absence of bundled ROM/BIOS bytes were verified.
+The updated pilot also cold-booted without a savestate or input replay for 600
+paced presentations, ending at guest frame 764 with zero coverage/IO failures.
+All 600 presents used the completed 1528x640 surface. No affine samples are
+expected on the title screens reached by that no-input boot.
+Owner launcher interaction and live in-game scale editing remain manual QA.
 The pilot is a local test handoff; it was not published as a release.
 
-Implementation commits: engine `60892e4`, title `a21cccb`. Beads: `beads-7j3s`.
+Initial implementation commits: engine `60892e4`, title `a21cccb`.
+Follow-up commits are on the same feature branches; engine diagnostic command:
+`e211f81`. Beads: `beads-7j3s`.
