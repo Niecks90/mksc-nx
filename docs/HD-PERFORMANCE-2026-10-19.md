@@ -78,6 +78,8 @@ local deterministic differential, not an actual transport or cross-build test.
 
 The owner candidate must use the measured HLE executable above, fresh boot,
 8x Adaptive/Fit to screen and normal audio. Keep the existing owner's saves and
-prior playtest directory intact. Practical gameplay approval and integration
-are pending. The public v0.1.7 download remains unchanged. Central issue:
+prior playtest directory intact. The owner confirmed improved speed and
+authorized default promotion. Engine `ec778f1` and title `9bc2520` are integrated
+on main; the cached HLE sampler is the shared build default. The public v0.1.7
+download remains unchanged. Central issue:
 `beads-bce3`; other selected games in that issue are still pending.

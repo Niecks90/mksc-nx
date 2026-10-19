@@ -21,7 +21,8 @@ measurements below name their original fixtures and executables.
 The follow-up [8x CPU rendering candidate](HD-PERFORMANCE-2026-10-19.md)
 measures a cached HLE affine sampler against its maintained direct LLE build.
 It improves that matched Windows route by 61.5%, while remaining below full
-speed. Owner gameplay approval and integration are pending; v0.1.7 is unchanged.
+speed. The owner approved default promotion and it is integrated on main;
+the v0.1.7 binary download is unchanged.
 
 ## Boundary
 
