@@ -1,5 +1,8 @@
 roms/
-/gbarecomp
+/gbarecomp/
+/recomp-ui/
+/third_party/
+/build*/
 *.gba
 *.GBA
 generated/*.c
@@ -29,10 +32,5 @@ recomp_seed_proposals.toml
 .vs/
 .vscode/
 __pycache__/
-
-# Decomp symbol-import INPUTS. These are the bulky, regenerable readelf and
-# link-map dumps produced by tools/decomp/build.sh from the third_party/mksc
-# submodule; the small, reviewable importer OUTPUTS (symbols/*.tsv and
-# symbols/AMKE_symbols.toml) are tracked. See gbarecomp/docs/SYMBOL_OVERLAY.md.
 symbols/mksc_readelf_*.txt
 symbols/mksc.map

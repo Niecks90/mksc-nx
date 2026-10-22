@@ -28,6 +28,27 @@ if(NOT EXISTS "${GBARECOMP_ROOT}/CMakeLists.txt")
         "Configure with -DGBARECOMP_ROOT=<path> if the local worktree link is absent.")
 endif()
 
+
+if(NOT EXISTS "${GBARECOMP_ROOT}/CMakeLists.txt")
+    execute_process(
+        COMMAND git clone --depth 1 --recurse-submodules https://github.com/mstan/gbarecomp.git ${GBARECOMP_ROOT}
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+endif()
+if(NOT EXISTS "${GBARECOMP_ROOT}/external/arm-recomp-core/cmake/ArmRecompCore.cmake")
+    execute_process(
+        COMMAND git -C ${GBARECOMP_ROOT} submodule update --init --depth 1 --recursive
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+endif()
+
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/switch/host_window.cpp ${GBARECOMP_ROOT}/src/runtime/host_window.cpp COPYONLY)
+
+if(NINTENDO_SWITCH OR __SWITCH__)
+    set(GBARECOMP_NETPLAY OFF)
+    set(GBAGAME_RECOMP_UI OFF)
+endif()
+
 add_subdirectory("${GBARECOMP_ROOT}" gbarecomp_build EXCLUDE_FROM_ALL)
 enable_testing()
 add_executable(mksc_extended_view_tests
@@ -93,6 +114,17 @@ target_link_libraries(MarioKartSuperCircuitRecomp PRIVATE
     gbarecomp_gba
     gbarecomp_armv4t
     "-Wl,--end-group")
+
+
+if(NINTENDO_SWITCH OR __SWITCH__)
+    target_link_libraries(MarioKartSuperCircuitRecomp PRIVATE "-lnx" "-lSDL2" "-lEGL" "-lGLESv2" "-lglapi" "-ldrm_nouveau" "-lm")
+
+    add_custom_command(TARGET MarioKartSuperCircuitRecomp POST_BUILD
+        COMMAND nacptool --create "Mario Kart Super Circuit Recomp" "mstan, jellees, antimattur" "v0.1.8" $<TARGET_FILE_DIR:MarioKartSuperCircuitRecomp>/mksc_nx.nacp
+        COMMAND elf2nro $<TARGET_FILE:MarioKartSuperCircuitRecomp> $<TARGET_FILE_DIR:MarioKartSuperCircuitRecomp>/mksc_nx.nro --nacp=$<TARGET_FILE_DIR:MarioKartSuperCircuitRecomp>/mksc_nx.nacp
+        COMMENT "Generating mksc_nx.nro"
+    )
+endif()
 
 target_compile_definitions(MarioKartSuperCircuitRecomp PRIVATE
     MKSC_VERSION="${PROJECT_VERSION}"
