@@ -45,6 +45,12 @@ configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/gbarecomp/src/runtime/host_window.cpp"
     COPYONLY
 )
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/switch/overlay_compile.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/gbarecomp/src/runtime/overlay_compile.cpp"
+    COPYONLY
+)
+
 
 set(GBARECOMP_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/gbarecomp" CACHE PATH "Path to gbarecomp")
 

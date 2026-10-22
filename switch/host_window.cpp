@@ -2842,9 +2842,23 @@ HostWindow::Events HostWindow::pump() {
                 close_game_controller(b);
                 open_first_game_controller(b);
             }
-        } else if (e.type == SDL_WINDOWEVENT &&
-                   e.window.event == SDL_WINDOWEVENT_CLOSE) {
-            ev.quit = true;
+        } else if (e.type == SDL_WINDOWEVENT) {
+#if defined(__SWITCH__)
+            if (e.window.event == SDL_WINDOWEVENT_SIZE_CHANGED ||
+                e.window.event == SDL_WINDOWEVENT_RESIZED) {
+                int w = e.window.data1;
+                int h = e.window.data2;
+                if (w == 1920 && h == 1080) {
+                    // Docked
+                } else if (w == 1280 && h == 720) {
+                    // Handheld
+                }
+            }
+#endif
+            if (e.window.event == SDL_WINDOWEVENT_CLOSE) {
+                ev.quit = true;
+            }
+
         } else if (e.type == SDL_FINGERDOWN ||
                    e.type == SDL_FINGERMOTION ||
                    e.type == SDL_FINGERUP) {
