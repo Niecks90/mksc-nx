@@ -22,7 +22,7 @@ jobs:
 
       - name: Ensure Codegen is present (Stage 1)
         run: |
-          if ! ls generated/recompiled_*.cpp >/dev/null 2>&1; then echo "Codegen files missing!"; return 1; fi
+          if ! ls generated/recompiled_*.cpp >/dev/null 2>&1; then echo "Codegen files missing!"; exit 1; fi
 
       - name: Build Switch NRO (Stage 2)
         run: |

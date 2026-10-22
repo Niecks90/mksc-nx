@@ -21,28 +21,39 @@ set(GBARECOMP_SELFHEAL_RECOMPILE_DEFAULT ON CACHE BOOL
     "Enable Mario Kart: Super Circuit runtime self-heal sharding by default" FORCE)
 set(GBARECOMP_ENABLE_MODS ON CACHE BOOL
     "Enable Mario Kart: Super Circuit's mod catalog and GBA mod packages" FORCE)
+
+if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/gbarecomp/CMakeLists.txt")
+    message(STATUS "gbarecomp checkout not found. Cloning gbarecomp recursively...")
+    execute_process(
+        COMMAND git clone --depth 1 --recurse-submodules https://github.com/mstan/gbarecomp.git "${CMAKE_CURRENT_SOURCE_DIR}/gbarecomp"
+        RESULT_VARIABLE GBARECOMP_CLONE_RES
+    )
+    if(NOT GBARECOMP_CLONE_RES EQUAL 0)
+        message(FATAL_ERROR "Failed to clone gbarecomp repository")
+    endif()
+endif()
+
+if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/gbarecomp/external/arm-recomp-core/cmake/ArmRecompCore.cmake")
+    message(STATUS "Updating gbarecomp submodules...")
+    execute_process(
+        COMMAND git -C "${CMAKE_CURRENT_SOURCE_DIR}/gbarecomp" submodule update --init --depth 1 --recursive
+    )
+endif()
+
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/switch/host_window.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/gbarecomp/src/runtime/host_window.cpp"
+    COPYONLY
+)
+
+set(GBARECOMP_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/gbarecomp" CACHE PATH "Path to gbarecomp")
+
 if(NOT EXISTS "${GBARECOMP_ROOT}/CMakeLists.txt")
     message(FATAL_ERROR
         "GBARECOMP_ROOT is not a gbarecomp checkout:\n"
         "  ${GBARECOMP_ROOT}\n"
         "Configure with -DGBARECOMP_ROOT=<path> if the local worktree link is absent.")
 endif()
-
-
-if(NOT EXISTS "${GBARECOMP_ROOT}/CMakeLists.txt")
-    execute_process(
-        COMMAND git clone --depth 1 --recurse-submodules https://github.com/mstan/gbarecomp.git ${GBARECOMP_ROOT}
-        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-    )
-endif()
-if(NOT EXISTS "${GBARECOMP_ROOT}/external/arm-recomp-core/cmake/ArmRecompCore.cmake")
-    execute_process(
-        COMMAND git -C ${GBARECOMP_ROOT} submodule update --init --depth 1 --recursive
-        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-    )
-endif()
-
-configure_file(${CMAKE_CURRENT_SOURCE_DIR}/switch/host_window.cpp ${GBARECOMP_ROOT}/src/runtime/host_window.cpp COPYONLY)
 
 if(NINTENDO_SWITCH OR __SWITCH__)
     set(GBARECOMP_NETPLAY OFF)
