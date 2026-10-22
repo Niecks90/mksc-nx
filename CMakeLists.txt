@@ -133,9 +133,25 @@ target_link_libraries(MarioKartSuperCircuitRecomp PRIVATE
     "-Wl,--end-group")
 
 
-if(NINTENDO_SWITCH OR __SWITCH__)
-    target_link_directories(MarioKartSuperCircuitRecomp PRIVATE $ENV{DEVKITPRO}/portlibs/switch/lib $ENV{DEVKITPRO}/libnx/lib /opt/devkitpro/portlibs/switch/lib /opt/devkitpro/libnx/lib)
-    target_link_libraries(MarioKartSuperCircuitRecomp PRIVATE "-lnx" "-lSDL2" "-lEGL" "-lGLESv2" "-lglapi" "-ldrm_nouveau" "-lm")
+if(NINTENDO_SWITCH OR __SWITCH__ OR SWITCH)
+    # 1. Add linker flags directly to target link options so gcc passes -L to ld
+    target_link_options(MarioKartSuperCircuitRecomp PRIVATE
+        "-L/opt/devkitpro/portlibs/switch/lib"
+        "-L/opt/devkitpro/libnx/lib"
+        "-L$ENV{DEVKITPRO}/portlibs/switch/lib"
+        "-L$ENV{DEVKITPRO}/libnx/lib"
+    )
+
+    # 2. Link libraries cleanly (without quotes and without -l prefixes)
+    target_link_libraries(MarioKartSuperCircuitRecomp PRIVATE
+        SDL2
+        EGL
+        GLESv2
+        glapi
+        drm_nouveau
+        nx
+        m
+    )
 
     add_custom_command(TARGET MarioKartSuperCircuitRecomp POST_BUILD
         COMMAND nacptool --create "Mario Kart Super Circuit Recomp" "mstan, jellees, antimattur" "v0.1.8" $<TARGET_FILE_DIR:MarioKartSuperCircuitRecomp>/mksc_nx.nacp
