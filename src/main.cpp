@@ -16,13 +16,29 @@
 #endif
 
 
+
 #if defined(__SWITCH__)
 #include <switch.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <fstream>
 #include <iostream>
+#include <stdio.h>
+
+void log_boot(const char* fmt, ...) {
+    FILE* f = fopen("sdmc:/switch/mksc_nx/boot.log", "a");
+    if (f) {
+        va_list args;
+        va_start(args, fmt);
+        vfprintf(f, fmt, args);
+        vprintf(fmt, args);
+        va_end(args);
+        fflush(f);
+        fclose(f);
+    }
+}
 #endif
+
 
 int main(int argc, char** argv) {
 #if defined(__SWITCH__)
@@ -30,6 +46,46 @@ int main(int argc, char** argv) {
     mkdir("sdmc:/switch", 0777);
     mkdir("sdmc:/switch/mksc_nx", 0777);
     mkdir("sdmc:/switch/mksc_nx/save", 0777);
+
+    FILE* log_f = fopen("sdmc:/switch/mksc_nx/boot.log", "w");
+    if (log_f) {
+        fprintf(log_f, "--- MKSC NX Boot Log ---\n");
+        fclose(log_f);
+    }
+
+    log_boot("Verified directories.\n");
+
+    FILE* rom = fopen("sdmc:/switch/mksc_nx/rom.gba", "rb");
+    if (rom) {
+        fseek(rom, 0, SEEK_END);
+        long size = ftell(rom);
+        fclose(rom);
+        log_boot("Found rom.gba: %ld bytes.\n", size);
+    } else {
+        log_boot("ERROR: Missing sdmc:/switch/mksc_nx/rom.gba!\n");
+        // Don't exit silently, we should pause or just let engine fail loudly.
+        // Actually, instructions said: "delay/render a visible error before returning"
+        printf("ERROR: Missing rom.gba!\n");
+        svcSleepThread(5000000000ULL);
+        return 1;
+    }
+
+    FILE* bios = fopen("sdmc:/switch/mksc_nx/gba_bios.bin", "rb");
+    if (bios) {
+        fseek(bios, 0, SEEK_END);
+        long size = ftell(bios);
+        fclose(bios);
+        log_boot("Found gba_bios.bin: %ld bytes.\n", size);
+    } else {
+        log_boot("ERROR: Missing sdmc:/switch/mksc_nx/gba_bios.bin!\n");
+        printf("ERROR: Missing gba_bios.bin!\n");
+        svcSleepThread(5000000000ULL);
+        return 1;
+    }
+
+    extern const size_t kDispatchTableLen;
+    log_boot("kDispatchTableLen = %zu\n", kDispatchTableLen);
+
 
     bool config_widescreen = true;
     bool config_fps60 = true;
@@ -58,6 +114,8 @@ int main(int argc, char** argv) {
         new_config << "linear_filter = 0\n";
         new_config << "show_fps = 0\n";
     }
+    log_boot("Config: widescreen=%d, fps60=%d, linear_filter=%d, show_fps=%d\n", config_widescreen, config_fps60, config_linear_filter, config_show_fps);
+
 
 #endif
 
@@ -167,5 +225,9 @@ int main(int argc, char** argv) {
     }
 #endif
 
+
+#if defined(__SWITCH__)
+    log_boot("Entering gbarecomp runtime main loop...\n");
+#endif
     return gbarecomp::run_game(static_cast<int>(av.size()), av.data(), opts);
 }
