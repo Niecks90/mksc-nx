@@ -134,6 +134,7 @@ target_link_libraries(MarioKartSuperCircuitRecomp PRIVATE
 
 
 if(NINTENDO_SWITCH OR __SWITCH__)
+    target_link_directories(MarioKartSuperCircuitRecomp PRIVATE $ENV{DEVKITPRO}/portlibs/switch/lib $ENV{DEVKITPRO}/libnx/lib /opt/devkitpro/portlibs/switch/lib /opt/devkitpro/libnx/lib)
     target_link_libraries(MarioKartSuperCircuitRecomp PRIVATE "-lnx" "-lSDL2" "-lEGL" "-lGLESv2" "-lglapi" "-ldrm_nouveau" "-lm")
 
     add_custom_command(TARGET MarioKartSuperCircuitRecomp POST_BUILD
