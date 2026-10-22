@@ -1,0 +1,42 @@
+name: Switch Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: devkitpro/devkita64:latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Ensure Codegen is present (Stage 1)
+        run: |
+          if ! ls generated/recompiled_*.cpp >/dev/null 2>&1; then echo "Codegen files missing!"; return 1; fi
+
+      - name: Build Switch NRO (Stage 2)
+        run: |
+          export DEVKITPRO=/opt/devkitpro
+          export DEVKITA64=/opt/devkitpro/devkitA64
+          export PATH=/opt/devkitpro/tools/bin:/opt/devkitpro/devkitA64/bin:$PATH
+
+          # Configure CMake with Switch Toolchain
+          cmake -B build -DCMAKE_TOOLCHAIN_FILE=$DEVKITPRO/cmake/Switch.cmake
+          # Build
+          cmake --build build -j$(nproc)
+
+      - name: Upload Release (Stage 3)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/mksc_nx.nro

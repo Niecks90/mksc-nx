@@ -1,172 +1,72 @@
-# Mario Kart: Super Circuit Recomp
+# Mario Kart: Super Circuit Recomp (Switch Port)
 
-> **Experimental preview.** This recompilation is a byproduct of developing
-> [gbarecomp](https://github.com/mstan/gbarecomp): the games are the proving
-> ground, while the reusable framework is the larger goal. This is not a
-> finished commercial port, so expect rough edges and please report problems.
-> For more context, read
-> [Recomp + AI: 5 Months Later »](https://1379.tech/recomp-ai-5-months-later/).
+> **Nintendo Switch Homebrew Exclusive**
+> This repository is a strict port of the `MarioKartSuperCircuitRecomp` project for the Nintendo Switch.
 
-Static recompilation of **Mario Kart: Super Circuit** for Windows and Linux, with
-optional 60 FPS, Adaptive Widescreen and Higher Internal Resolution mods.
+Static recompilation of **Mario Kart: Super Circuit** for Nintendo Switch, featuring optional 60 FPS track rendering, Adaptive Widescreen, and Higher Internal Resolution mods.
 
-Special thanks to **antimattur** for the Mario Kart: Super Circuit
-decompilation work and for discovering the 60 FPS patch; that foundation made
-this level of polish possible.
+The game ROM and Nintendo GBA BIOS are **not included**. You must provide your own legally obtained dumps.
 
-The game ROM and Nintendo GBA BIOS are **not included**. You must provide your
-own legally obtained dumps.
+## SD Card Layout
 
-## Status
+Create a folder on your SD card at `sdmc:/switch/mksc_nx/` and ensure the following files are present:
 
-The current release is `v0.1.8` for Windows x64 and Linux x86_64. The game
-boots and runs through menus, cup selection, races, and results, and two
-players can link over the Internet or LAN with emulated link-cable netplay
-(see [`docs/NETPLAY.md`](docs/NETPLAY.md)). `v0.1.3` fixes cartridge saving,
-including Time Trial ghosts, by reporting the correct 64 KB flash chip identity.
-`v0.1.4` fixes delay-sync netplay checkpoint timeouts and keeps the Time Trial
-speedometer together when Adaptive Widescreen is enabled.
-`v0.1.6` adds optional 2x/3x/4x internal resolution, keeps the course fly-in
-at the selected sampling density, and extends roadside billboards into the
-Adaptive Widescreen margins. Sprites and HUD retain their original artwork.
-`v0.1.7` adds 8x and 16x internal resolution and single-player Display view
-choices. These higher scales can be substantially slower; 4x remains the mod
-default. In **Display**, choose **16:9** for a fixed wide view or **Adaptive**
-to fit the window or fullscreen display. **Native (3:2)** deliberately keeps
-side bars on a wider display. **Default (Mods)** preserves existing mod choices.
-The Netplay page's view choice applies separately to online play.
-`v0.1.8` adds the cached HLE track sampler for lower HD rendering cost. Up to
-4x is recommended; higher scales are labeled **(experimental)** and may still
-run very slowly, even with the optimization.
+```
+/switch/mksc_nx/
+ ├── mksc_nx.nro       (The game executable)
+ ├── rom.gba           (Your Mario Kart: Super Circuit USA ROM)
+ ├── gba_bios.bin      (Your retail GBA BIOS)
+ ├── config.txt        (Optional auto-generated config)
+ └── save/             (Auto-created directory for save files)
+```
 
-This is still an experimental preview; back up important saves and please
-report repeatable gameplay or presentation edge cases.
-
-## Quick start
-
-1. Download the Windows zip or Linux AppImage from [Releases](../../releases).
-2. Extract the zip and run `MarioKartSuperCircuitRecomp.exe`, or mark the
-   AppImage executable and run it.
-3. In the launcher, select your **Mario Kart: Super Circuit (USA)** ROM and
-   retail GBA BIOS.
-4. Configure display, audio, controls, and mods, then select **Play**.
-
-The launcher remembers valid files after the first setup. Enable **Skip
-launcher on boot** if you want later launches to go directly into the game.
-
-## Included mods
-
-These enhancements are optional and disabled by default:
-
-- **60 FPS Track Rendering** updates race presentation at 60 FPS while
-  preserving the game's underlying logic and timing, based on the patch
-  discovered by **antimattur**.
-- **Adaptive Widescreen** renders additional race content at the sides instead
-  of stretching the original 240×160 image.
-- **Higher Internal Resolution** samples the perspective track at 2x, 3x, 4x, 8x or 16x.
-  It works with Adaptive Widescreen; sprites and HUD keep their original artwork.
-  Up to 4x is recommended. **8x (experimental)** and **16x (experimental)**
-  may run very slowly: they render four and sixteen times the pixels of 4x.
-  The widescreen mod also offers **Fit to screen** and **16:9**;
-  an explicit Display view choice takes precedence over this legacy mod.
-
-Open the launcher's **Mods** page to enable these features. Because they are
-experimental, please report repeatable visual or gameplay regressions with the
-course, mode, and character used.
-
-## Features
-
-- Native Windows x64 application and Linux x86_64 AppImage
-- ROM and BIOS setup through the shared
-  [recomp-ui](https://github.com/mstan/recomp-ui) launcher
-- Optional 60 FPS, Adaptive Widescreen and Higher Internal Resolution mods
-- Two-player link-cable netplay with rollback or input delay
-- Keyboard and modern game-controller support
-- Windowed and fullscreen play with sharp scaling and optional affine
-  filtering
-- In-game settings menu
-- Cartridge saves and save states
+**Note:** For the best performance, it is highly recommended to run this homebrew in **Title Override** mode (by holding `R` while launching a retail game), rather than Applet Mode.
 
 ## Controls
 
-| GBA control | Keyboard |
+| Switch Control | Action |
 |---|---|
-| D-Pad | Arrow keys |
-| A / B | X / Z |
-| Start | Enter |
-| Select | Right Shift |
-| L / R | C / V |
+| D-Pad or Left Stick | Movement |
+| A / B | A / B Button |
+| + (Start) | Start |
+| - (Select) | Select |
+| L / R | L / R Triggers |
+| **+ and - Held Together** | **Exit the game cleanly** |
 
-Use **Shift+F1-F9** to save a state and **F1-F9** to load one. Controls can be
-changed from the launcher.
+## Configuration (`config.txt`)
+
+On first boot, `config.txt` is automatically generated with these defaults:
+
+```ini
+widescreen = 1
+fps60 = 1
+linear_filter = 0
+show_fps = 0
+```
+Change these values to `0` or `1` on your SD card to toggle the mods.
 
 ## Building from source
 
-Windows development requires CMake, Ninja, MSYS2 MinGW64, and SDL2:
+Building requires `devkitPro` with the `devkitA64` toolchain installed.
 
-```powershell
-git clone --recurse-submodules `
-  https://github.com/mstan/MarioKartSuperCircuitRecomp.git
-cd MarioKartSuperCircuitRecomp
+```bash
+export DEVKITPRO=/opt/devkitpro
+export DEVKITA64=/opt/devkitpro/devkitA64
+export PATH=/opt/devkitpro/tools/bin:/opt/devkitpro/devkitA64/bin:$PATH
 
-cmake -S gbarecomp -B gbarecomp/build -G Ninja
-cmake --build gbarecomp/build --target gba_recompile
-pwsh tools/regen.ps1
-cmake -S . -B build -G Ninja
-cmake --build build --target MarioKartSuperCircuitRecomp
+cmake -B build -DCMAKE_TOOLCHAIN_FILE=$DEVKITPRO/cmake/Switch.cmake
+cmake --build build -j$(nproc)
 ```
+The output `.nro` will be located at `build/mksc_nx.nro`.
 
-Generation requires the supported ROM revision and a retail GBA BIOS. Their
-identities and local development paths are documented in
-[`baserom.md`](baserom.md) and [`game.toml`](game.toml). ROM-derived generated
-code, copyrighted inputs, saves, and build output remain local and are never
-included in releases.
+## Credits
 
-Contributors can run `pwsh tools/test-attract-gameplay.ps1` for the automated
-native acceptance routes and `pwsh tools/make_release.ps1 -Version 0.1.4` to
-build a sanitized Windows package. The Linux AppImage build is documented in
-[`tools/linux/BUILD.md`](tools/linux/BUILD.md).
-
-### Decomp symbol names (optional)
-
-The generated code and every debug surface — hang traces, dispatch-miss
-reports, the PC sampler, the TCP `symbol` query — can be named from the
-[jellees/mksc](https://github.com/jellees/mksc) decompilation, which is pinned
-as a submodule at `third_party/mksc`. The tracked files under
-[`symbols/`](symbols/README.md) are already imported, so `tools/regen.ps1`
-picks them up automatically; `-NoSymbols` regenerates without them.
-
-Credit to **antimattur** for the Mario Kart: Super Circuit decompilation work
-that made these symbol imports possible.
-
-To re-import after the decomp advances upstream, build it under WSL with
-`tools/decomp/provision.sh` and `tools/decomp/build.sh` (root-free: no
-devkitPro or apt install needed) and run
-`gbarecomp/tools/symbol_import/import_decomp_symbols.py`. The build gates on
-the decomp reproducing this project's exact ROM SHA-1. Full procedure:
-[`gbarecomp/docs/SYMBOL_OVERLAY.md`](gbarecomp/docs/SYMBOL_OVERLAY.md).
-
-The decomp is used only as a source of facts — names, addresses, sizes, and
-the code/data split its own linker produced. None of its source, comments, or
-data enters this repository or the build; the submodule pins a URL and commit
-rather than vendoring code. Upstream ships no license file, which is why the
-boundary is drawn that tightly.
-
-## License
-
-PolyForm Noncommercial 1.0.0 — see [`LICENSE`](LICENSE). Third-party
-components retain their own licenses.
+Special thanks to:
+- **mstan** for `gbarecomp` and the initial recompilation framework.
+- **antimattur** for the decompilation and 60 FPS patch.
+- **jellees** for additional decompilation work.
+- **devkitPro** for the Switch homebrew toolchain.
 
 ## Legal
 
-This is an unofficial, non-commercial preservation and research project. It
-is not affiliated with or endorsed by Nintendo. Mario Kart and related names,
-characters, artwork, and game data are trademarks or copyrights of their
-respective owners.
-
-No copyrighted game ROM or Nintendo BIOS data is distributed by this project.
-
----
-
-Part of the **R.A.I.D. — Retro AI Development** static-recompilation
-community.
+This is an unofficial, non-commercial preservation and research project. It is not affiliated with or endorsed by Nintendo. Mario Kart and related names, characters, artwork, and game data are trademarks or copyrights of their respective owners. No copyrighted game ROM or Nintendo BIOS data is distributed by this project.
