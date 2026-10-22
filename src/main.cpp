@@ -79,8 +79,8 @@ int main(int argc, char** argv) {
 
 #if defined(__SWITCH__)
     // Enforce Paths and Options for Switch
-    opts.rom_path = "sdmc:/switch/mksc_nx/rom.gba";
-    opts.bios_path = "sdmc:/switch/mksc_nx/gba_bios.bin";
+
+
     opts.launcher_save_path = "sdmc:/switch/mksc_nx/save/mario_kart_super_circuit_usa.sav";
 #endif
 
@@ -138,8 +138,19 @@ int main(int argc, char** argv) {
     if (game_launcher_preboot(args, opts)) return 0;
 #endif
     std::vector<char*> av;
-    av.reserve(args.size());
-    for (auto& arg : args) av.push_back(arg.data());
+    av.push_back(argv[0]);
+#if defined(__SWITCH__)
+    std::string s_bios_flag = "--bios";
+    std::string s_bios_path = "sdmc:/switch/mksc_nx/gba_bios.bin";
+    std::string s_rom_flag = "--rom";
+    std::string s_rom_path = "sdmc:/switch/mksc_nx/rom.gba";
+    av.push_back(s_bios_flag.data());
+    av.push_back(s_bios_path.data());
+    av.push_back(s_rom_flag.data());
+    av.push_back(s_rom_path.data());
+#else
+    for (size_t i = 1; i < args.size(); ++i) av.push_back(args[i].data());
+#endif
 
 #if defined(__SWITCH__)
     // Force specific arguments if needed to bypass launcher or set filters
