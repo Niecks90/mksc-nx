@@ -70,7 +70,7 @@ add_subdirectory("${GBARECOMP_ROOT}" gbarecomp_build EXCLUDE_FROM_ALL)
 enable_testing()
 add_executable(mksc_extended_view_tests
     tests/extended_view_tests.cpp
-
+    "${GBARECOMP_ROOT}/tools/bios_smoke/dispatch_stub.cpp"
     src/mksc_extended_view.cpp src/mksc_margin_objects.cpp)
 target_include_directories(mksc_extended_view_tests PRIVATE
     src "${GBARECOMP_ROOT}/src/runtime")
@@ -78,7 +78,7 @@ target_link_gbarecomp_runtime_stack(mksc_extended_view_tests)
 add_test(NAME mksc_extended_view COMMAND mksc_extended_view_tests)
 
 add_executable(mksc_margin_objects_tests tests/margin_objects_tests.cpp
-     src/mksc_margin_objects.cpp)
+    "${GBARECOMP_ROOT}/tools/bios_smoke/dispatch_stub.cpp" src/mksc_margin_objects.cpp)
 target_include_directories(mksc_margin_objects_tests PRIVATE src "${GBARECOMP_ROOT}/src/runtime")
 target_link_gbarecomp_runtime_stack(mksc_margin_objects_tests)
 add_test(NAME mksc_margin_objects COMMAND mksc_margin_objects_tests)
@@ -94,15 +94,31 @@ file(GLOB GAME_GENERATED_SOURCES CONFIGURE_DEPENDS
     "${GBA_GAME_GENERATED_ROOT}/*.c"
     "${GBA_GAME_GENERATED_ROOT}/*.cpp")
 
-add_executable(MarioKartSuperCircuitRecomp
-    src/main.cpp
-    src/mksc_extended_view.cpp
-    src/mksc_margin_objects.cpp
-    src/mods/mksc_adaptive_view_plugin.cpp
-    src/mods/mksc_track_60fps_plugin.cpp
-    src/mods/mksc_internal_resolution_plugin.cpp
+file(GLOB GENERATED_GAME_SOURCES "generated/*.cpp")
 
-    ${GAME_GENERATED_SOURCES})
+if(GENERATED_GAME_SOURCES)
+    message(STATUS "Including recompiled game sources from generated/")
+    add_executable(MarioKartSuperCircuitRecomp
+        src/main.cpp
+        src/mksc_extended_view.cpp
+        src/mksc_margin_objects.cpp
+        src/mods/mksc_adaptive_view_plugin.cpp
+        src/mods/mksc_track_60fps_plugin.cpp
+        src/mods/mksc_internal_resolution_plugin.cpp
+        ${GAME_GENERATED_SOURCES}
+        ${GENERATED_GAME_SOURCES})
+else()
+    message(WARNING "No sources found in generated/. Using dispatch_stub.cpp to satisfy kDispatchTable linker symbols.")
+    add_executable(MarioKartSuperCircuitRecomp
+        src/main.cpp
+        src/mksc_extended_view.cpp
+        src/mksc_margin_objects.cpp
+        src/mods/mksc_adaptive_view_plugin.cpp
+        src/mods/mksc_track_60fps_plugin.cpp
+        src/mods/mksc_internal_resolution_plugin.cpp
+        "${GBARECOMP_ROOT}/tools/bios_smoke/dispatch_stub.cpp"
+        ${GAME_GENERATED_SOURCES})
+endif()
 
 # Keep every generated guest shard cheaper to compile than the runtime. The
 # dispatch table and symbol map remain ordinary small generated units.

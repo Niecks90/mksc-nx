@@ -42,6 +42,15 @@ void activate_track_60fps() {
 
 }  // namespace
 
+extern "C" void gba_mod_set_60fps_track_enabled(bool enabled) {
+    if (enabled) {
+        activate_track_60fps();
+    } else {
+        reset_track_60fps();
+    }
+}
+
+
 GBA_MOD_CONSTRUCTOR(mksc_register_track_60fps_plugin) {
     (void)gba_mod_register_reset_callback(reset_track_60fps);
     (void)gba_mod_register_activation_plugin(
