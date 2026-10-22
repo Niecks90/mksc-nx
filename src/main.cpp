@@ -124,15 +124,7 @@ int main(int argc, char** argv) {
     opts.launcher_save_path = "saves/mario_kart_super_circuit_usa.sav";
 #endif
 
-#if defined(__SWITCH__)
-    // Explicitly configure mod settings from switch config
-    extern void gba_mod_set_adaptive_view_enabled(bool enabled);
-    extern void gba_mod_set_60fps_track_enabled(bool enabled);
-    gba_mod_set_adaptive_view_enabled(config_widescreen);
-    gba_mod_set_60fps_track_enabled(config_fps60);
-    // You would set linear_filter and show_fps on the HostWindow/Options, but let's assume they are handled by arguments or launcher prefs that we can override.
-    // RunOptions doesn't explicitly expose linear_filter and show_fps directly as booleans, but we can set them as arguments or through the runtime.
-#endif
+
 
 #if defined(GBAGAME_RECOMP_UI) && !defined(__SWITCH__)
     if (game_launcher_preboot(args, opts)) return 0;
@@ -148,6 +140,19 @@ int main(int argc, char** argv) {
     av.push_back(s_bios_path.data());
     av.push_back(s_rom_flag.data());
     av.push_back(s_rom_path.data());
+
+    std::string s_mod_flag = "--mod";
+    std::string s_60fps = "mario-kart-super-circuit.track-60fps";
+    std::string s_view = "mario-kart-super-circuit.adaptive-view";
+
+    if (config_fps60) {
+        av.push_back(s_mod_flag.data());
+        av.push_back(s_60fps.data());
+    }
+    if (config_widescreen) {
+        av.push_back(s_mod_flag.data());
+        av.push_back(s_view.data());
+    }
 #else
     for (size_t i = 1; i < args.size(); ++i) av.push_back(args[i].data());
 #endif
