@@ -94,30 +94,22 @@ file(GLOB GAME_GENERATED_SOURCES CONFIGURE_DEPENDS
     "${GBA_GAME_GENERATED_ROOT}/*.c"
     "${GBA_GAME_GENERATED_ROOT}/*.cpp")
 
-file(GLOB GENERATED_GAME_SOURCES "generated/*.cpp")
+add_executable(MarioKartSuperCircuitRecomp
+    src/main.cpp
+    src/mksc_extended_view.cpp
+    src/mksc_margin_objects.cpp
+    src/mods/mksc_adaptive_view_plugin.cpp
+    src/mods/mksc_track_60fps_plugin.cpp
+    src/mods/mksc_internal_resolution_plugin.cpp
+)
 
+file(GLOB GENERATED_GAME_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/generated/*.cpp")
 if(GENERATED_GAME_SOURCES)
-    message(STATUS "Including recompiled game sources from generated/")
-    add_executable(MarioKartSuperCircuitRecomp
-        src/main.cpp
-        src/mksc_extended_view.cpp
-        src/mksc_margin_objects.cpp
-        src/mods/mksc_adaptive_view_plugin.cpp
-        src/mods/mksc_track_60fps_plugin.cpp
-        src/mods/mksc_internal_resolution_plugin.cpp
-        ${GAME_GENERATED_SOURCES}
-        ${GENERATED_GAME_SOURCES})
+    message(STATUS "Building with generated game sources")
+    target_sources(MarioKartSuperCircuitRecomp PRIVATE ${GENERATED_GAME_SOURCES})
 else()
-    message(WARNING "No sources found in generated/. Using dispatch_stub.cpp to satisfy kDispatchTable linker symbols.")
-    add_executable(MarioKartSuperCircuitRecomp
-        src/main.cpp
-        src/mksc_extended_view.cpp
-        src/mksc_margin_objects.cpp
-        src/mods/mksc_adaptive_view_plugin.cpp
-        src/mods/mksc_track_60fps_plugin.cpp
-        src/mods/mksc_internal_resolution_plugin.cpp
-        "${GBARECOMP_ROOT}/tools/bios_smoke/dispatch_stub.cpp"
-        ${GAME_GENERATED_SOURCES})
+    message(STATUS "No generated sources found, using switch/dispatch_stub.cpp")
+    target_sources(MarioKartSuperCircuitRecomp PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/switch/dispatch_stub.cpp")
 endif()
 
 # Keep every generated guest shard cheaper to compile than the runtime. The
