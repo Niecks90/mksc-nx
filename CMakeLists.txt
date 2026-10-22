@@ -104,14 +104,9 @@ add_executable(MarioKartSuperCircuitRecomp
 )
 
 file(GLOB GENERATED_GAME_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/generated/*.cpp")
-if(GENERATED_GAME_SOURCES)
-    message(STATUS "Building with generated game sources")
-    target_sources(MarioKartSuperCircuitRecomp PRIVATE ${GENERATED_GAME_SOURCES})
-    target_include_directories(MarioKartSuperCircuitRecomp PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/generated")
-else()
-    message(STATUS "No generated sources found, using switch/dispatch_stub.cpp")
-    target_sources(MarioKartSuperCircuitRecomp PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/switch/dispatch_stub.cpp")
-endif()
+message(STATUS "Building with generated game sources")
+target_sources(MarioKartSuperCircuitRecomp PRIVATE ${GENERATED_GAME_SOURCES})
+target_include_directories(MarioKartSuperCircuitRecomp PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/generated")
 
 # Keep every generated guest shard cheaper to compile than the runtime. The
 # dispatch table and symbol map remain ordinary small generated units.
