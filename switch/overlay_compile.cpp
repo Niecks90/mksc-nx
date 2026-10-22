@@ -214,6 +214,7 @@ bool load_and_resolve(const std::string& dll, uint32_t pc,
 #include <dlfcn.h>
 #endif
 
+
 int run_process(const std::string& cmdline, const std::string& logpath,
                 std::string*) {
     std::string c = cmdline + " > \"" + logpath + "\" 2>&1";
@@ -232,6 +233,7 @@ bool load_and_resolve(const std::string& dll, uint32_t pc,
     if (err) *err = "Dynamic overlay loading is not supported on Nintendo Switch.";
     return false;
 #else
+
     // RTLD_LOCAL so an overlay's symbols cannot collide with the next one's:
     // every overlay exports the same overlay_abi / overlay_init names.
     void* h = dlopen(dll.c_str(), RTLD_NOW | RTLD_LOCAL);
@@ -278,6 +280,20 @@ bool load_and_resolve(const std::string& dll, uint32_t pc,
 
 }  // namespace
 
+#if defined(__SWITCH__)
+const char* heal_backend_name(HealBackend b) { return "none"; }
+bool overlay_bundled_tcc_available() { return false; }
+bool overlay_compile_one(const OverlayWorkItem& w,
+                         const std::string& cache_dir,
+                         const GbaOverlayCallbacks* cb,
+                         bool compile_if_missing,
+                         HealBackend backend,
+                         OverlayCompiled* out,
+                         std::string* err) {
+    if (err) *err = "Dynamic overlay loading is not supported on Nintendo Switch.";
+    return false;
+}
+#else
 const char* heal_backend_name(HealBackend b) {
     return b == HealBackend::Tcc ? "tcc" : "gcc";
 }
@@ -432,4 +448,6 @@ bool overlay_compile_one(const OverlayWorkItem& w,
     return true;
 }
 
+
+#endif
 }  // namespace gbarecomp
