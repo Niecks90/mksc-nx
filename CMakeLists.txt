@@ -134,22 +134,23 @@ target_link_libraries(MarioKartSuperCircuitRecomp PRIVATE
 
 
 if(NINTENDO_SWITCH OR __SWITCH__ OR SWITCH)
-    # 1. Add linker flags directly to target link options so gcc passes -L to ld
+    target_link_directories(MarioKartSuperCircuitRecomp PRIVATE
+        /opt/devkitpro/portlibs/switch/lib
+        /opt/devkitpro/libnx/lib
+    )
+
     target_link_options(MarioKartSuperCircuitRecomp PRIVATE
         "-L/opt/devkitpro/portlibs/switch/lib"
         "-L/opt/devkitpro/libnx/lib"
-        "-L$ENV{DEVKITPRO}/portlibs/switch/lib"
-        "-L$ENV{DEVKITPRO}/libnx/lib"
     )
 
-    # 2. Link libraries cleanly (without quotes and without -l prefixes)
     target_link_libraries(MarioKartSuperCircuitRecomp PRIVATE
-        SDL2
-        EGL
-        GLESv2
-        glapi
-        drm_nouveau
-        nx
+        /opt/devkitpro/portlibs/switch/lib/libSDL2.a
+        /opt/devkitpro/portlibs/switch/lib/libEGL.a
+        /opt/devkitpro/portlibs/switch/lib/libGLESv2.a
+        /opt/devkitpro/portlibs/switch/lib/libglapi.a
+        /opt/devkitpro/portlibs/switch/lib/libdrm_nouveau.a
+        /opt/devkitpro/libnx/lib/libnx.a
         m
     )
 
