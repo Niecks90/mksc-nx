@@ -1631,6 +1631,10 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
     if (base_h < 1) base_h = 160;
 
     if (SDL_WasInit(SDL_INIT_VIDEO) == 0) {
+
+#if defined(__SWITCH__)
+        std::fprintf(stderr, "host_window: calling SDL_InitSubSystem(VIDEO)\n");
+#endif
         if (SDL_InitSubSystem(SDL_INIT_VIDEO) != 0) {
             std::fprintf(stderr, "host_window: SDL_InitSubSystem(VIDEO) failed: %s\n",
                          SDL_GetError());
@@ -1729,6 +1733,10 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
                                  SDL_WINDOWPOS_CENTERED,
                                  win_w, win_h,
                                  window_flags);
+
+#if defined(__SWITCH__)
+    std::fprintf(stderr, "host_window: Window %p (Error: %s)\n", b->window, SDL_GetError());
+#endif
     if (!b->window) {
         std::fprintf(stderr, "host_window: SDL_CreateWindow failed: %s\n",
                      SDL_GetError());

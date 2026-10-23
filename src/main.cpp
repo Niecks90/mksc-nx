@@ -20,6 +20,11 @@
 
 
 #if defined(__SWITCH__)
+
+#if defined(__SWITCH__)
+#include <SDL2/SDL.h>
+#include <unistd.h>
+#endif
 #include <switch.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -68,6 +73,16 @@ int main(int argc, char** argv) {
     mkdir("sdmc:/switch", 0777);
     mkdir("sdmc:/switch/mksc_nx", 0777);
     mkdir("sdmc:/switch/mksc_nx/save", 0777);
+    chdir("sdmc:/switch/mksc_nx");
+
+    SDL_LogSetOutputFunction([](void* userdata, int category, SDL_LogPriority priority, const char* message) {
+        log_boot("[SDL] (%d) %s\n", priority, message);
+    }, nullptr);
+
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+
 
     FILE* log_f = fopen("sdmc:/switch/mksc_nx/boot.log", "w");
     if (log_f) {
