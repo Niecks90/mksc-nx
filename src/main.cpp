@@ -3,7 +3,6 @@
 #include <string>
 #include <vector>
 #include <exception>
-#include <exception>
 
 #include "runtime.h"
 #include "mksc_extended_view.h"
@@ -32,7 +31,6 @@
 #include <iostream>
 #include <stdio.h>
 #include <cstdarg>
-#include <cstdarg>
 
 void log_boot(const char* fmt, ...) {
     FILE* f = fopen("sdmc:/switch/mksc_nx/boot.log", "a");
@@ -53,21 +51,19 @@ void log_boot(const char* fmt, ...) {
 
 extern "C" const uint32_t kDispatchTableLen;
 
+
+#if defined(__SWITCH__)
+extern "C" void gba_mod_set_adaptive_view_enabled(bool);
+extern "C" void gba_mod_set_60fps_track_enabled(bool);
+#endif
 int main(int argc, char** argv) {
 #if defined(__SWITCH__)
 
-    freopen("sdmc:/switch/mksc_nx/boot.log", "a", stdout);
-    freopen("sdmc:/switch/mksc_nx/boot.log", "a", stderr);
-    setvbuf(stdout, NULL, _IONBF, 0);
-    setvbuf(stderr, NULL, _IONBF, 0);
-
     std::set_terminate([]() {
-        fprintf(stderr, "FATAL: std::terminate() called!\n");
-        fflush(stderr);
+        log_boot("FATAL: std::terminate() called!\n");
     });
     atexit([]() {
-        fprintf(stderr, "Application exited via atexit / exit().\n");
-        fflush(stderr);
+        log_boot("Application exited via atexit / exit().\n");
     });
    // Create necessary directories on Switch
     mkdir("sdmc:/switch", 0777);
@@ -234,50 +230,36 @@ int main(int argc, char** argv) {
     av.push_back(s_bios_path.data());
     av.push_back(s_rom_flag.data());
     av.push_back(s_rom_path.data());
-
-    std::string s_mod_flag = "--mod";
-    std::string s_60fps = "mario-kart-super-circuit.track-60fps";
-    std::string s_view = "mario-kart-super-circuit.adaptive-view";
-
-    if (config_fps60) {
-        av.push_back(s_mod_flag.data());
-        av.push_back(s_60fps.data());
-    }
-    if (config_widescreen) {
-        av.push_back(s_mod_flag.data());
-        av.push_back(s_view.data());
-    }
+    if (config_linear_filter) av.push_back(const_cast<char*>("--linear-filter"));
+    if (config_show_fps) av.push_back(const_cast<char*>("--show-fps"));
+    av.push_back(nullptr);
 #else
     for (size_t i = 1; i < args.size(); ++i) av.push_back(args[i].data());
-#endif
-
-#if defined(__SWITCH__)
-    // Force specific arguments if needed to bypass launcher or set filters
-    if (config_linear_filter) {
-        av.push_back(const_cast<char*>("--linear-filter"));
-    }
-    if (config_show_fps) {
-        av.push_back(const_cast<char*>("--show-fps"));
-    }
+    av.push_back(nullptr);
 #endif
 
 
 #if defined(__SWITCH__)
+
+#if defined(__SWITCH__)
+    gba_mod_set_adaptive_view_enabled(config_widescreen);
+    gba_mod_set_60fps_track_enabled(config_fps60);
+#endif
     log_boot("Entering gbarecomp runtime main loop...\n");
     try {
-        int ret = gbarecomp::run_game(static_cast<int>(av.size()), av.data(), opts);
+        int ret = gbarecomp::run_game(static_cast<int>(av.size() - 1), av.data(), opts);
         log_boot("Exited gbarecomp runtime main loop cleanly.\n");
         return ret;
     } catch (const std::exception& e) {
-        fprintf(stderr, "FATAL EXCEPTION: %s\n", e.what());
-        fflush(stderr);
+        log_boot("FATAL EXCEPTION: %s\n", e.what());
+        svcSleepThread(5000000000ULL);
         return 1;
     } catch (...) {
-        fprintf(stderr, "FATAL UNKNOWN EXCEPTION!\n");
-        fflush(stderr);
+        log_boot("FATAL UNKNOWN EXCEPTION!\n");
+        svcSleepThread(5000000000ULL);
         return 1;
     }
 #else
-    return gbarecomp::run_game(static_cast<int>(av.size()), av.data(), opts);
+    return gbarecomp::run_game(static_cast<int>(av.size() - 1), av.data(), opts);
 #endif
 }
