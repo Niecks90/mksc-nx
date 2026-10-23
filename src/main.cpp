@@ -46,6 +46,8 @@ void log_boot(const char* fmt, ...) {
 #endif
 
 
+extern "C" const uint32_t kDispatchTableLen;
+
 int main(int argc, char** argv) {
 #if defined(__SWITCH__)
 
@@ -103,8 +105,7 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    extern "C" const uint32_t kDispatchTableLen;
-    log_boot("kDispatchTableLen = %zu\n", kDispatchTableLen);
+    log_boot("kDispatchTableLen = %u\n", kDispatchTableLen);
 
 
     bool config_widescreen = true;
