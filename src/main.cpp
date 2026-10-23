@@ -24,14 +24,18 @@
 #include <fstream>
 #include <iostream>
 #include <stdio.h>
+#include <cstdarg>
+#include <cstdarg>
 
 void log_boot(const char* fmt, ...) {
     FILE* f = fopen("sdmc:/switch/mksc_nx/boot.log", "a");
     if (f) {
-        va_list args;
+        va_list args, args_copy;
         va_start(args, fmt);
+        va_copy(args_copy, args);
         vfprintf(f, fmt, args);
-        vprintf(fmt, args);
+        vprintf(fmt, args_copy);
+        va_end(args_copy);
         va_end(args);
         fflush(f);
         fclose(f);
