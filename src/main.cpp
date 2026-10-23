@@ -2,6 +2,8 @@
 #include <cstring>
 #include <string>
 #include <vector>
+#include <exception>
+#include <exception>
 
 #include "runtime.h"
 #include "mksc_extended_view.h"
@@ -46,7 +48,21 @@ void log_boot(const char* fmt, ...) {
 
 int main(int argc, char** argv) {
 #if defined(__SWITCH__)
-    // Create necessary directories on Switch
+
+    freopen("sdmc:/switch/mksc_nx/boot.log", "a", stdout);
+    freopen("sdmc:/switch/mksc_nx/boot.log", "a", stderr);
+    setvbuf(stdout, NULL, _IONBF, 0);
+    setvbuf(stderr, NULL, _IONBF, 0);
+
+    std::set_terminate([]() {
+        fprintf(stderr, "FATAL: std::terminate() called!\n");
+        fflush(stderr);
+    });
+    atexit([]() {
+        fprintf(stderr, "Application exited via atexit / exit().\n");
+        fflush(stderr);
+    });
+   // Create necessary directories on Switch
     mkdir("sdmc:/switch", 0777);
     mkdir("sdmc:/switch/mksc_nx", 0777);
     mkdir("sdmc:/switch/mksc_nx/save", 0777);
@@ -87,7 +103,7 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    extern const size_t kDispatchTableLen;
+    extern "C" const uint32_t kDispatchTableLen;
     log_boot("kDispatchTableLen = %zu\n", kDispatchTableLen);
 
 
@@ -232,6 +248,20 @@ int main(int argc, char** argv) {
 
 #if defined(__SWITCH__)
     log_boot("Entering gbarecomp runtime main loop...\n");
-#endif
+    try {
+        int ret = gbarecomp::run_game(static_cast<int>(av.size()), av.data(), opts);
+        log_boot("Exited gbarecomp runtime main loop cleanly.\n");
+        return ret;
+    } catch (const std::exception& e) {
+        fprintf(stderr, "FATAL EXCEPTION: %s\n", e.what());
+        fflush(stderr);
+        return 1;
+    } catch (...) {
+        fprintf(stderr, "FATAL UNKNOWN EXCEPTION!\n");
+        fflush(stderr);
+        return 1;
+    }
+#else
     return gbarecomp::run_game(static_cast<int>(av.size()), av.data(), opts);
+#endif
 }
