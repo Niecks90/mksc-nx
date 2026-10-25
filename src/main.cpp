@@ -18,6 +18,8 @@
 
 
 #if defined(__SWITCH__)
+#include <SDL.h>
+
 #include <switch.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -55,7 +57,13 @@ extern "C" const uint32_t kDispatchTableLen;
 int main(int argc, char** argv) {
 #if defined(__SWITCH__)
     // Create necessary directories on Switch
-    mkdir("sdmc:/switch", 0777);
+        std::set_terminate([]() {
+        log_boot("FATAL: std::terminate() called!\n");
+    });
+    atexit([]() {
+        log_boot("Application exited via atexit / exit().\n");
+    });
+mkdir("sdmc:/switch", 0777);
     mkdir("sdmc:/switch/mksc_nx", 0777);
     mkdir("sdmc:/switch/mksc_nx/save", 0777);
     chdir("sdmc:/switch/mksc_nx");
