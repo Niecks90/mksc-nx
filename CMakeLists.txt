@@ -106,19 +106,7 @@ add_executable(MarioKartSuperCircuitRecomp
 file(GLOB GENERATED_GAME_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/generated/*.cpp")
 message(STATUS "Building with generated game sources")
 target_sources(MarioKartSuperCircuitRecomp PRIVATE ${GENERATED_GAME_SOURCES})
-target_include_directories(MarioKartSuperCircuitRecomp PRIVATE
-    "${CMAKE_CURRENT_SOURCE_DIR}/generated"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src"
-)
-
-if(NINTENDO_SWITCH OR __SWITCH__ OR SWITCH)
-    target_include_directories(MarioKartSuperCircuitRecomp PRIVATE
-        /opt/devkitpro/portlibs/switch/include
-        /opt/devkitpro/portlibs/switch/include/SDL2
-        $ENV{DEVKITPRO}/portlibs/switch/include
-        $ENV{DEVKITPRO}/portlibs/switch/include/SDL2
-    )
-endif()
+target_include_directories(MarioKartSuperCircuitRecomp PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/generated")
 
 # Keep every generated guest shard cheaper to compile than the runtime. The
 # dispatch table and symbol map remain ordinary small generated units.
@@ -136,10 +124,21 @@ if(GAME_RECOMPILED_SOURCES)
 endif()
 
 target_include_directories(MarioKartSuperCircuitRecomp PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/generated"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src"
     "${GBARECOMP_ROOT}/src/armv4t"
     "${GBARECOMP_ROOT}/src/gba"
     "${GBARECOMP_ROOT}/src/runtime"
     "${GBARECOMP_ROOT}/src/debug")
+
+if(NINTENDO_SWITCH OR __SWITCH__ OR SWITCH)
+    target_include_directories(MarioKartSuperCircuitRecomp PRIVATE
+        /opt/devkitpro/portlibs/switch/include
+        /opt/devkitpro/portlibs/switch/include/SDL2
+        $ENV{DEVKITPRO}/portlibs/switch/include
+        $ENV{DEVKITPRO}/portlibs/switch/include/SDL2
+    )
+endif()
 
 target_link_libraries(MarioKartSuperCircuitRecomp PRIVATE
     "-Wl,--start-group"

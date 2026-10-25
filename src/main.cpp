@@ -2,7 +2,6 @@
 #include <cstring>
 #include <string>
 #include <vector>
-#include <exception>
 
 #include "runtime.h"
 #include "mksc_extended_view.h"
@@ -19,11 +18,6 @@
 
 
 #if defined(__SWITCH__)
-
-#if defined(__SWITCH__)
-#include <SDL2/SDL.h>
-#include <unistd.h>
-#endif
 #include <switch.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -49,23 +43,18 @@ void log_boot(const char* fmt, ...) {
 #endif
 
 
+
+#if defined(__SWITCH__)
+extern "C" int gba_mod_set_adaptive_view_enabled(int enabled);
+extern "C" int gba_mod_set_60fps_track_enabled(int enabled);
+#endif
+
 extern "C" const uint32_t kDispatchTableLen;
 
 
-#if defined(__SWITCH__)
-extern "C" void gba_mod_set_adaptive_view_enabled(bool);
-extern "C" void gba_mod_set_60fps_track_enabled(bool);
-#endif
 int main(int argc, char** argv) {
 #if defined(__SWITCH__)
-
-    std::set_terminate([]() {
-        log_boot("FATAL: std::terminate() called!\n");
-    });
-    atexit([]() {
-        log_boot("Application exited via atexit / exit().\n");
-    });
-   // Create necessary directories on Switch
+    // Create necessary directories on Switch
     mkdir("sdmc:/switch", 0777);
     mkdir("sdmc:/switch/mksc_nx", 0777);
     mkdir("sdmc:/switch/mksc_nx/save", 0777);
@@ -115,6 +104,7 @@ int main(int argc, char** argv) {
         svcSleepThread(5000000000ULL);
         return 1;
     }
+
 
     log_boot("kDispatchTableLen = %u\n", kDispatchTableLen);
 
@@ -220,35 +210,42 @@ int main(int argc, char** argv) {
     if (game_launcher_preboot(args, opts)) return 0;
 #endif
     std::vector<char*> av;
-    av.push_back(argv[0]);
 #if defined(__SWITCH__)
-    std::string s_bios_flag = "--bios";
-    std::string s_bios_path = "sdmc:/switch/mksc_nx/gba_bios.bin";
-    std::string s_rom_flag = "--rom";
-    std::string s_rom_path = "sdmc:/switch/mksc_nx/rom.gba";
-    av.push_back(s_bios_flag.data());
-    av.push_back(s_bios_path.data());
-    av.push_back(s_rom_flag.data());
-    av.push_back(s_rom_path.data());
-    if (config_linear_filter) av.push_back(const_cast<char*>("--linear-filter"));
-    if (config_show_fps) av.push_back(const_cast<char*>("--show-fps"));
+    // 1. Enable built-in mods directly via C API (DO NOT pass --mod flags via CLI)
+    gba_mod_set_adaptive_view_enabled(config_widescreen ? 1 : 0);
+    gba_mod_set_60fps_track_enabled(config_fps60 ? 1 : 0);
+
+    // 2. Build argv using persistent static buffers (prevents dangling pointers)
+    static char arg_prog[]        = "mksc_nx";
+    static char arg_bios_flag[]   = "--bios";
+    static char arg_bios_path[]   = "sdmc:/switch/mksc_nx/gba_bios.bin";
+    static char arg_rom_flag[]    = "--rom";
+    static char arg_rom_path[]    = "sdmc:/switch/mksc_nx/rom.gba";
+    static char arg_linear_flag[] = "--linear-filter";
+    static char arg_fps_flag[]    = "--show-fps";
+
+    av.push_back(argv && argv[0] ? argv[0] : arg_prog);
+    av.push_back(arg_bios_flag);
+    av.push_back(arg_bios_path);
+    av.push_back(arg_rom_flag);
+    av.push_back(arg_rom_path);
+
+    if (config_linear_filter) {
+        av.push_back(arg_linear_flag);
+    }
+    if (config_show_fps) {
+        av.push_back(arg_fps_flag);
+    }
+    // Null-terminate the vector for standard POSIX execv/argv conventions
     av.push_back(nullptr);
-#else
-    for (size_t i = 1; i < args.size(); ++i) av.push_back(args[i].data());
-    av.push_back(nullptr);
-#endif
 
-
-#if defined(__SWITCH__)
-
-#if defined(__SWITCH__)
-    gba_mod_set_adaptive_view_enabled(config_widescreen);
-    gba_mod_set_60fps_track_enabled(config_fps60);
-#endif
+    // 3. Launch runtime and log any uncaught exceptions
     log_boot("Entering gbarecomp runtime main loop...\n");
     try {
-        int ret = gbarecomp::run_game(static_cast<int>(av.size() - 1), av.data(), opts);
-        log_boot("Exited gbarecomp runtime main loop cleanly.\n");
+        // argc excludes the trailing nullptr sentinel
+        const int run_argc = static_cast<int>(av.size() - 1);
+        int ret = gbarecomp::run_game(run_argc, av.data(), opts);
+        log_boot("Exited gbarecomp runtime main loop cleanly with code %d.\n", ret);
         return ret;
     } catch (const std::exception& e) {
         log_boot("FATAL EXCEPTION: %s\n", e.what());
@@ -260,6 +257,8 @@ int main(int argc, char** argv) {
         return 1;
     }
 #else
-    return gbarecomp::run_game(static_cast<int>(av.size() - 1), av.data(), opts);
+    av.reserve(args.size());
+    for (auto& arg : args) av.push_back(arg.data());
+    return gbarecomp::run_game(static_cast<int>(av.size()), av.data(), opts);
 #endif
 }
