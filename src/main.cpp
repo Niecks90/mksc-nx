@@ -3,6 +3,22 @@
 #include <string>
 #include <vector>
 
+#if defined(__SWITCH__)
+extern "C" {
+    // Override libnx default 1 MiB stack size with 32 MiB for gbarecomp execution stack
+    u32 __nx_link_stack_size = 0x2000000;
+}
+#endif
+
+
+#if defined(__SWITCH__)
+extern "C" {
+    // Override libnx default 1 MiB stack size with 32 MiB for gbarecomp execution stack
+    u32 __nx_link_stack_size = 0x2000000;
+}
+#endif
+
+
 #include "runtime.h"
 #include "mksc_extended_view.h"
 #include "mksc_flash_dispatch.h"
