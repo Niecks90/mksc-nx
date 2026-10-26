@@ -2,21 +2,12 @@
 #include <cstring>
 #include <string>
 #include <vector>
-
-#if defined(__SWITCH__)
-extern "C" {
-    // Override libnx default 1 MiB stack size with 32 MiB for gbarecomp execution stack
-    u32 __nx_link_stack_size = 0x2000000;
-}
-#endif
+#include <cstdint>
 
 
-#if defined(__SWITCH__)
-extern "C" {
-    // Override libnx default 1 MiB stack size with 32 MiB for gbarecomp execution stack
-    u32 __nx_link_stack_size = 0x2000000;
-}
-#endif
+
+
+
 
 
 #include "runtime.h"
@@ -43,6 +34,18 @@ extern "C" {
 #include <iostream>
 #include <stdio.h>
 #include <cstdarg>
+
+#if defined(__SWITCH__)
+extern "C" {
+    uint32_t __nx_link_stack_size = 0x2000000;
+}
+#endif
+
+#if defined(__SWITCH__)
+extern "C" {
+    uint32_t __nx_link_stack_size = 0x2000000;
+}
+#endif
 
 void log_boot(const char* fmt, ...) {
     FILE* f = fopen("sdmc:/switch/mksc_nx/boot.log", "a");
