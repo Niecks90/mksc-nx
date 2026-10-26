@@ -17,15 +17,6 @@ void activate_adaptive_view() {
 }
 
 }  // namespace
-extern "C" int gba_mod_set_adaptive_view_enabled(int enabled) {
-    if (enabled) {
-        activate_adaptive_view();
-    } else {
-        reset_adaptive_view();
-    }
-    return 0;
-}
-
 GBA_MOD_CONSTRUCTOR(mksc_register_adaptive_view_plugin) {
     (void)gba_mod_register_reset_callback(reset_adaptive_view);
     (void)gba_mod_register_activation_plugin(
