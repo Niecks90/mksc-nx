@@ -2,13 +2,6 @@
 #include <cstring>
 #include <string>
 #include <vector>
-#include <cstdint>
-
-
-
-
-
-
 
 #include "runtime.h"
 #include "mksc_extended_view.h"
@@ -23,10 +16,9 @@
 #endif
 
 
-
 #if defined(__SWITCH__)
 #include <SDL.h>
-
+#include <unistd.h>
 #include <switch.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -34,18 +26,7 @@
 #include <iostream>
 #include <stdio.h>
 #include <cstdarg>
-
-#if defined(__SWITCH__)
-extern "C" {
-    uint32_t __nx_link_stack_size = 0x2000000;
-}
-#endif
-
-#if defined(__SWITCH__)
-extern "C" {
-    uint32_t __nx_link_stack_size = 0x2000000;
-}
-#endif
+#include <exception>
 
 void log_boot(const char* fmt, ...) {
     FILE* f = fopen("sdmc:/switch/mksc_nx/boot.log", "a");
@@ -61,40 +42,48 @@ void log_boot(const char* fmt, ...) {
         fclose(f);
     }
 }
-#endif
-
-
-
-#if defined(__SWITCH__)
-extern "C" int gba_mod_set_adaptive_view_enabled(int enabled);
-extern "C" int gba_mod_set_60fps_track_enabled(int enabled);
-#endif
 
 extern "C" const uint32_t kDispatchTableLen;
+extern "C" int gba_mod_set_adaptive_view_enabled(int);
+extern "C" int gba_mod_set_60fps_track_enabled(int);
 
+struct GameThreadArgs {
+    int argc;
+    char** argv;
+    gbarecomp::RunOptions* opts;
+    int return_code;
+};
+
+static void game_runner_thread(void* arg) {
+    auto* ctx = static_cast<GameThreadArgs*>(arg);
+    try {
+        log_boot("Starting gbarecomp runtime inside 32 MiB stack thread...\n");
+        ctx->return_code = gbarecomp::run_game(ctx->argc, ctx->argv, *ctx->opts);
+        log_boot("Exited gbarecomp runtime cleanly with code %d.\n", ctx->return_code);
+    } catch (const std::exception& e) {
+        log_boot("FATAL EXCEPTION in game thread: %s\n", e.what());
+        ctx->return_code = 1;
+    } catch (...) {
+        log_boot("FATAL UNKNOWN EXCEPTION in game thread!\n");
+        ctx->return_code = 1;
+    }
+}
+
+#endif
 
 int main(int argc, char** argv) {
 #if defined(__SWITCH__)
-    // Create necessary directories on Switch
-        std::set_terminate([]() {
+    std::set_terminate([]() {
         log_boot("FATAL: std::terminate() called!\n");
     });
     atexit([]() {
         log_boot("Application exited via atexit / exit().\n");
     });
-mkdir("sdmc:/switch", 0777);
+
+    mkdir("sdmc:/switch", 0777);
     mkdir("sdmc:/switch/mksc_nx", 0777);
     mkdir("sdmc:/switch/mksc_nx/save", 0777);
     chdir("sdmc:/switch/mksc_nx");
-
-    SDL_LogSetOutputFunction([](void* userdata, int category, SDL_LogPriority priority, const char* message) {
-        log_boot("[SDL] (%d) %s\n", priority, message);
-    }, nullptr);
-
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
-
 
     FILE* log_f = fopen("sdmc:/switch/mksc_nx/boot.log", "w");
     if (log_f) {
@@ -104,6 +93,14 @@ mkdir("sdmc:/switch", 0777);
 
     log_boot("Verified directories.\n");
 
+    SDL_LogSetOutputFunction([](void* userdata, int category, SDL_LogPriority priority, const char* message) {
+        log_boot("[SDL] (%d) %s\n", priority, message);
+    }, nullptr);
+
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+
     FILE* rom = fopen("sdmc:/switch/mksc_nx/rom.gba", "rb");
     if (rom) {
         fseek(rom, 0, SEEK_END);
@@ -112,8 +109,6 @@ mkdir("sdmc:/switch", 0777);
         log_boot("Found rom.gba: %ld bytes.\n", size);
     } else {
         log_boot("ERROR: Missing sdmc:/switch/mksc_nx/rom.gba!\n");
-        // Don't exit silently, we should pause or just let engine fail loudly.
-        // Actually, instructions said: "delay/render a visible error before returning"
         printf("ERROR: Missing rom.gba!\n");
         svcSleepThread(5000000000ULL);
         return 1;
@@ -132,16 +127,13 @@ mkdir("sdmc:/switch", 0777);
         return 1;
     }
 
-
     log_boot("kDispatchTableLen = %u\n", kDispatchTableLen);
-
 
     bool config_widescreen = true;
     bool config_fps60 = true;
     bool config_linear_filter = false;
     bool config_show_fps = false;
 
-    // Config Parsing
     std::string config_path = "sdmc:/switch/mksc_nx/config.txt";
     std::ifstream config_file(config_path);
     if (config_file.is_open()) {
@@ -164,10 +156,7 @@ mkdir("sdmc:/switch", 0777);
         new_config << "show_fps = 0\n";
     }
     log_boot("Config: widescreen=%d, fps60=%d, linear_filter=%d, show_fps=%d\n", config_widescreen, config_fps60, config_linear_filter, config_show_fps);
-
-
 #endif
-
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--version") == 0) {
             std::printf("MarioKartSuperCircuitRecomp v%s\n", MKSC_VERSION);
@@ -184,12 +173,7 @@ mkdir("sdmc:/switch", 0777);
     gbarecomp::RunOptions opts;
     std::vector<std::string> args(argv, argv + argc);
 
-#if defined(__SWITCH__)
-    // Enforce Paths and Options for Switch
 
-
-    opts.launcher_save_path = "sdmc:/switch/mksc_nx/save/mario_kart_super_circuit_usa.sav";
-#endif
 
 #if defined(GBAGAME_NETPLAY) && !defined(__SWITCH__)
     opts.netplay=gbarecomp::make_gba_netplay_launch("mksc-usa",GBARECOMP_NETPLAY_BUILD_ID,
@@ -231,12 +215,14 @@ mkdir("sdmc:/switch", 0777);
     opts.launcher_save_path = "saves/mario_kart_super_circuit_usa.sav";
 #endif
 
+#if defined(__SWITCH__)
 
+#endif
 
 #if defined(GBAGAME_RECOMP_UI) && !defined(__SWITCH__)
     if (game_launcher_preboot(args, opts)) return 0;
 #endif
-    std::vector<char*> av;
+
 #if defined(__SWITCH__)
     // 1. Enable built-in mods directly via C API (DO NOT pass --mod flags via CLI)
     gba_mod_set_adaptive_view_enabled(config_widescreen ? 1 : 0);
@@ -251,6 +237,7 @@ mkdir("sdmc:/switch", 0777);
     static char arg_linear_flag[] = "--linear-filter";
     static char arg_fps_flag[]    = "--show-fps";
 
+    std::vector<char*> av;
     av.push_back(argv && argv[0] ? argv[0] : arg_prog);
     av.push_back(arg_bios_flag);
     av.push_back(arg_bios_path);
@@ -266,24 +253,34 @@ mkdir("sdmc:/switch", 0777);
     // Null-terminate the vector for standard POSIX execv/argv conventions
     av.push_back(nullptr);
 
-    // 3. Launch runtime and log any uncaught exceptions
-    log_boot("Entering gbarecomp runtime main loop...\n");
-    try {
-        // argc excludes the trailing nullptr sentinel
-        const int run_argc = static_cast<int>(av.size() - 1);
-        int ret = gbarecomp::run_game(run_argc, av.data(), opts);
-        log_boot("Exited gbarecomp runtime main loop cleanly with code %d.\n", ret);
-        return ret;
-    } catch (const std::exception& e) {
-        log_boot("FATAL EXCEPTION: %s\n", e.what());
-        svcSleepThread(5000000000ULL);
-        return 1;
-    } catch (...) {
-        log_boot("FATAL UNKNOWN EXCEPTION!\n");
-        svcSleepThread(5000000000ULL);
+    GameThreadArgs thread_args;
+    thread_args.argc = static_cast<int>(av.size() - 1);
+    thread_args.argv = av.data();
+    thread_args.opts = &opts;
+    thread_args.return_code = 0;
+
+    Thread game_thread;
+    constexpr size_t kStackSize = 32 * 1024 * 1024; // 32 MiB stack
+    Result rc = threadCreate(&game_thread, game_runner_thread, &thread_args, nullptr, kStackSize, 0x2C, -2);
+    if (R_FAILED(rc)) {
+        log_boot("ERROR: Failed to create game thread (rc=0x%x)!\n", rc);
         return 1;
     }
+
+    log_boot("Launching game thread...\n");
+    rc = threadStart(&game_thread);
+    if (R_FAILED(rc)) {
+        log_boot("ERROR: Failed to start game thread (rc=0x%x)!\n", rc);
+        threadClose(&game_thread);
+        return 1;
+    }
+
+    threadWaitForExit(&game_thread);
+    threadClose(&game_thread);
+
+    return thread_args.return_code;
 #else
+    std::vector<char*> av;
     av.reserve(args.size());
     for (auto& arg : args) av.push_back(arg.data());
     return gbarecomp::run_game(static_cast<int>(av.size()), av.data(), opts);

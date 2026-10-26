@@ -51,7 +51,6 @@ configure_file(
     COPYONLY
 )
 
-
 set(GBARECOMP_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/gbarecomp" CACHE PATH "Path to gbarecomp")
 
 if(NOT EXISTS "${GBARECOMP_ROOT}/CMakeLists.txt")
@@ -101,12 +100,17 @@ add_executable(MarioKartSuperCircuitRecomp
     src/mods/mksc_adaptive_view_plugin.cpp
     src/mods/mksc_track_60fps_plugin.cpp
     src/mods/mksc_internal_resolution_plugin.cpp
-)
+    ${GAME_GENERATED_SOURCES})
 
 file(GLOB GENERATED_GAME_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/generated/*.cpp")
-message(STATUS "Building with generated game sources")
-target_sources(MarioKartSuperCircuitRecomp PRIVATE ${GENERATED_GAME_SOURCES})
-
+if(GENERATED_GAME_SOURCES)
+    message(STATUS "Building with generated game sources")
+    target_sources(MarioKartSuperCircuitRecomp PRIVATE ${GENERATED_GAME_SOURCES})
+    target_include_directories(MarioKartSuperCircuitRecomp PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/generated")
+else()
+    message(STATUS "No generated sources found, using switch/dispatch_stub.cpp")
+    target_sources(MarioKartSuperCircuitRecomp PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/switch/dispatch_stub.cpp")
+endif()
 
 # Keep every generated guest shard cheaper to compile than the runtime. The
 # dispatch table and symbol map remain ordinary small generated units.
@@ -124,21 +128,10 @@ if(GAME_RECOMPILED_SOURCES)
 endif()
 
 target_include_directories(MarioKartSuperCircuitRecomp PRIVATE
-    "${CMAKE_CURRENT_SOURCE_DIR}/generated"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src"
     "${GBARECOMP_ROOT}/src/armv4t"
     "${GBARECOMP_ROOT}/src/gba"
     "${GBARECOMP_ROOT}/src/runtime"
     "${GBARECOMP_ROOT}/src/debug")
-
-if(NINTENDO_SWITCH OR __SWITCH__ OR SWITCH)
-    target_include_directories(MarioKartSuperCircuitRecomp PRIVATE
-        /opt/devkitpro/portlibs/switch/include
-        /opt/devkitpro/portlibs/switch/include/SDL2
-        $ENV{DEVKITPRO}/portlibs/switch/include
-        $ENV{DEVKITPRO}/portlibs/switch/include/SDL2
-    )
-endif()
 
 target_link_libraries(MarioKartSuperCircuitRecomp PRIVATE
     "-Wl,--start-group"
@@ -150,6 +143,13 @@ target_link_libraries(MarioKartSuperCircuitRecomp PRIVATE
 
 
 if(NINTENDO_SWITCH OR __SWITCH__ OR SWITCH)
+    target_include_directories(MarioKartSuperCircuitRecomp PRIVATE
+        /opt/devkitpro/portlibs/switch/include
+        /opt/devkitpro/portlibs/switch/include/SDL2
+        $ENV{DEVKITPRO}/portlibs/switch/include
+        $ENV{DEVKITPRO}/portlibs/switch/include/SDL2
+    )
+
     target_link_directories(MarioKartSuperCircuitRecomp PRIVATE
         /opt/devkitpro/portlibs/switch/lib
         /opt/devkitpro/libnx/lib
