@@ -50,9 +50,6 @@ extern "C" int gba_mod_set_60fps_track_enabled(int enabled) {
     return 0;
 }
 
-
-
-
 GBA_MOD_CONSTRUCTOR(mksc_register_track_60fps_plugin) {
     (void)gba_mod_register_reset_callback(reset_track_60fps);
     (void)gba_mod_register_activation_plugin(
