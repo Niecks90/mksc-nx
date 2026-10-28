@@ -25,6 +25,8 @@ jobs:
           rm -rf build_host && mkdir build_host && cd build_host
           cmake ..
           cmake --build . --target MarioKartSuperCircuitRecomp -j$(nproc)
+          cmake --build . --target gba_recompile -j$(nproc)
+          ./gbarecomp_build/tools/gba_recompile --bios ../bios/gba_bios.bin --output ../gbarecomp/src/runtime/generated_bios/
           cd ..
           mkdir -p generated
           ls -la generated/
