@@ -1713,7 +1713,7 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, linear_filter ? "linear" : "nearest");
     const int win_w = base_w * scale;
     const int win_h = base_h * scale;
-    Uint32 window_flags = SDL_WINDOW_SHOWN |
+    Uint32 window_flags = SDL_WINDOW_SHOWN | SDL_WINDOW_OPENGL |
         ((b->expanded_view || b->resize_driven_view ||
           b->freely_resizable_window)
              ? static_cast<Uint32>(SDL_WINDOW_RESIZABLE) : Uint32{0});
@@ -2857,8 +2857,10 @@ HostWindow::Events HostWindow::pump() {
                 int w = e.window.data1;
                 int h = e.window.data2;
                 if (w == 1920 && h == 1080) {
+                    // Docked
                     if (b->renderer) SDL_RenderSetLogicalSize(b->renderer, 1920, 1080);
                 } else if (w == 1280 && h == 720) {
+                    // Handheld
                     if (b->renderer) SDL_RenderSetLogicalSize(b->renderer, 1280, 720);
                 }
             }

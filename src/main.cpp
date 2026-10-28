@@ -16,6 +16,7 @@
 #endif
 
 
+
 #if defined(__SWITCH__)
 #include <SDL.h>
 #include <unistd.h>
@@ -46,6 +47,8 @@ void log_boot(const char* fmt, ...) {
 extern "C" const uint32_t kDispatchTableLen;
 extern "C" int gba_mod_set_adaptive_view_enabled(int);
 extern "C" int gba_mod_set_60fps_track_enabled(int);
+bool g_config_audio = true;
+bool g_config_show_fps = false;
 
 struct GameThreadArgs {
     int argc;
@@ -77,7 +80,7 @@ int main(int argc, char** argv) {
         log_boot("FATAL: std::terminate() called!\n");
     });
     atexit([]() {
-        log_boot("Application exited via atexit / exit().\n");
+        log_boot("Application exited via atexit / end.\n");
     });
 
     mkdir("sdmc:/switch", 0777);
@@ -132,7 +135,7 @@ int main(int argc, char** argv) {
     bool config_widescreen = true;
     bool config_fps60 = true;
     bool config_linear_filter = false;
-    bool config_show_fps = false;
+    g_config_show_fps = false;
 
     std::string config_path = "sdmc:/switch/mksc_nx/config.txt";
     std::ifstream config_file(config_path);
@@ -145,8 +148,10 @@ int main(int argc, char** argv) {
             if (line.find("fps60 = 1") != std::string::npos) config_fps60 = true;
             if (line.find("linear_filter = 0") != std::string::npos) config_linear_filter = false;
             if (line.find("linear_filter = 1") != std::string::npos) config_linear_filter = true;
-            if (line.find("show_fps = 0") != std::string::npos) config_show_fps = false;
-            if (line.find("show_fps = 1") != std::string::npos) config_show_fps = true;
+            if (line.find("show_fps = 0") != std::string::npos) g_config_show_fps = false;
+            if (line.find("show_fps = 1") != std::string::npos) g_config_show_fps = true;
+            if (line.find("audio = 0") != std::string::npos) g_config_audio = false;
+            if (line.find("audio = 1") != std::string::npos) g_config_audio = true;
         }
     } else {
         std::ofstream new_config(config_path);
@@ -154,8 +159,9 @@ int main(int argc, char** argv) {
         new_config << "fps60 = 1\n";
         new_config << "linear_filter = 0\n";
         new_config << "show_fps = 0\n";
+        new_config << "audio = 1\n";
     }
-    log_boot("Config: widescreen=%d, fps60=%d, linear_filter=%d, show_fps=%d\n", config_widescreen, config_fps60, config_linear_filter, config_show_fps);
+    log_boot("Config: widescreen=%d, fps60=%d, linear_filter=%d, show_fps=%d\n", config_widescreen, config_fps60, config_linear_filter, g_config_show_fps);
 #endif
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--version") == 0) {
@@ -173,7 +179,12 @@ int main(int argc, char** argv) {
     gbarecomp::RunOptions opts;
     std::vector<std::string> args(argv, argv + argc);
 
+#if defined(__SWITCH__)
+    // Enforce Paths and Options for Switch
 
+
+    opts.launcher_save_path = "sdmc:/switch/mksc_nx/save/mario_kart_super_circuit_usa.sav";
+#endif
 
 #if defined(GBAGAME_NETPLAY) && !defined(__SWITCH__)
     opts.netplay=gbarecomp::make_gba_netplay_launch("mksc-usa",GBARECOMP_NETPLAY_BUILD_ID,
@@ -215,27 +226,28 @@ int main(int argc, char** argv) {
     opts.launcher_save_path = "saves/mario_kart_super_circuit_usa.sav";
 #endif
 
-#if defined(__SWITCH__)
 
-#endif
 
 #if defined(GBAGAME_RECOMP_UI) && !defined(__SWITCH__)
     if (game_launcher_preboot(args, opts)) return 0;
 #endif
 
 #if defined(__SWITCH__)
-    // 1. Enable built-in mods directly via C API (DO NOT pass --mod flags via CLI)
     gba_mod_set_adaptive_view_enabled(config_widescreen ? 1 : 0);
     gba_mod_set_60fps_track_enabled(config_fps60 ? 1 : 0);
 
-    // 2. Build argv using persistent static buffers (prevents dangling pointers)
+    if (!config_widescreen) {
+        opts.high_resolution_affine_provider = nullptr;
+    }
+
+    opts.audio_enabled = g_config_audio;
+
     static char arg_prog[]        = "mksc_nx";
     static char arg_bios_flag[]   = "--bios";
     static char arg_bios_path[]   = "sdmc:/switch/mksc_nx/gba_bios.bin";
     static char arg_rom_flag[]    = "--rom";
     static char arg_rom_path[]    = "sdmc:/switch/mksc_nx/rom.gba";
     static char arg_linear_flag[] = "--linear-filter";
-    static char arg_fps_flag[]    = "--show-fps";
 
     std::vector<char*> av;
     av.push_back(argv && argv[0] ? argv[0] : arg_prog);
@@ -247,10 +259,6 @@ int main(int argc, char** argv) {
     if (config_linear_filter) {
         av.push_back(arg_linear_flag);
     }
-    if (config_show_fps) {
-        av.push_back(arg_fps_flag);
-    }
-    // Null-terminate the vector for standard POSIX execv/argv conventions
     av.push_back(nullptr);
 
     GameThreadArgs thread_args;
