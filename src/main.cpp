@@ -47,7 +47,7 @@ void log_boot(const char* fmt, ...) {
 extern "C" const uint32_t kDispatchTableLen;
 extern "C" int gba_mod_set_adaptive_view_enabled(int);
 extern "C" int gba_mod_set_60fps_track_enabled(int);
-bool g_config_audio = true;
+extern "C" bool g_config_audio = true;
 bool g_config_show_fps = false;
 
 struct GameThreadArgs {

@@ -52,3 +52,9 @@ GBA_MOD_CONSTRUCTOR(mksc_register_track_60fps_plugin) {
     (void)gba_mod_register_activation_plugin(
         "mario-kart-super-circuit.track-60fps", activate_track_60fps);
 }
+
+extern "C" void gba_mod_set_60fps_track_enabled(int enabled) {
+    if (enabled) {
+        activate_track_60fps();
+    }
+}
