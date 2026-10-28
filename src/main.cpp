@@ -87,6 +87,9 @@ int main(int argc, char** argv) {
     mkdir("sdmc:/switch/mksc_nx", 0777);
     mkdir("sdmc:/switch/mksc_nx/save", 0777);
     chdir("sdmc:/switch/mksc_nx");
+    setenv("GBARECOMP_BIOS_HLE", "1", 1);
+    setenv("GBARECOMP_DIAGNOSTICS", "0", 1);
+    setenv("GBARECOMP_PRESENT_IN_PLACE", "1", 1);
 
     FILE* log_f = fopen("sdmc:/switch/mksc_nx/boot.log", "w");
     if (log_f) {
@@ -101,8 +104,6 @@ int main(int argc, char** argv) {
     }, nullptr);
 
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
 
     FILE* rom = fopen("sdmc:/switch/mksc_nx/rom.gba", "rb");
     if (rom) {
@@ -247,6 +248,7 @@ int main(int argc, char** argv) {
     static char arg_rom_flag[]    = "--rom";
     static char arg_rom_path[]    = "sdmc:/switch/mksc_nx/rom.gba";
     static char arg_linear_flag[] = "--linear-filter";
+    static char arg_hle[] = "--bios-hle";
 
     std::vector<char*> av;
     av.push_back(argv && argv[0] ? argv[0] : arg_prog);
@@ -254,6 +256,7 @@ int main(int argc, char** argv) {
     av.push_back(arg_bios_path);
     av.push_back(arg_rom_flag);
     av.push_back(arg_rom_path);
+    av.push_back(arg_hle);
 
     if (config_linear_filter) {
         av.push_back(arg_linear_flag);
