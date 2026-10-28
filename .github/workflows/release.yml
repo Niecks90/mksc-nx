@@ -20,31 +20,49 @@ jobs:
         with:
           submodules: false
 
-      - name: Host Build Codegen (Stage 1)
+      - name: Host Build Codegen and Recompile BIOS (Stage 1)
         run: |
           rm -rf build_host && mkdir build_host && cd build_host
           cmake ..
-          cmake --build . --target MarioKartSuperCircuitRecomp -j$(nproc)
+          # 1. Compiler UNIQUEMENT l'outil de recompilation natif
           cmake --build . --target gba_recompile -j$(nproc)
-          ./gbarecomp_build/tools/gba_recompile --bios ../bios/gba_bios.bin --output ../gbarecomp/src/runtime/generated_bios/
-          cd ..
-          mkdir -p generated
-          ls -la generated/
+          
+          # 2. Localiser l'exécutable gba_recompile sans supposer de chemin rigide
+          RECOMPILE_BIN=$(find . -type f -name gba_recompile -executable | head -n 1)
+          echo "Utilisation de gba_recompile : $RECOMPILE_BIN"
 
+          # 3. Détecter la configuration du BIOS si présente
+          CONFIG_FLAG=""
+          if [ -f "../gbarecomp/bios/gba_bios.toml" ]; then
+            CONFIG_FLAG="--config ../gbarecomp/bios/gba_bios.toml"
+          elif [ -f "../bios/gba_bios.toml" ]; then
+            CONFIG_FLAG="--config ../bios/gba_bios.toml"
+          fi
+
+          # 4. Transpiler le BIOS vers le dossier attendu par gbarecomp
+          $RECOMPILE_BIN --bios ../bios/gba_bios.bin $CONFIG_FLAG --out ../gbarecomp/src/runtime/generated_bios/
+          cd ..
+
+          # 5. Vérifier que bios_recompiled.cpp est bien apparu
+          echo "--- Contenu de generated_bios ---"
+          ls -la gbarecomp/src/runtime/generated_bios/
 
       - name: Build Switch NRO (Stage 2)
         run: |
           export DEVKITPRO=/opt/devkitpro
-          # Fix devkitpro package manager and install deps if needed (usually handled by the container)
-          # dkp-pacman -Syu --noconfirm switch-dev switch-sdl2 switch-glad switch-glm
-
           export DEVKITA64=/opt/devkitpro/devkitA64
           export PATH=/opt/devkitpro/tools/bin:/opt/devkitpro/devkitA64/bin:$PATH
 
-          # Configure CMake with Switch Toolchain
-          cmake -B build -DCMAKE_TOOLCHAIN_FILE=$DEVKITPRO/cmake/Switch.cmake
-          # Build
+          # Configuration CMake avec la toolchain Nintendo Switch et Scanline HLE
+          cmake -B build \
+            -DCMAKE_TOOLCHAIN_FILE=$DEVKITPRO/cmake/Switch.cmake \
+            -DGBARECOMP_SCANLINE_IMPLEMENTATION=HLE
+
+          # Compilation finale du NRO
           cmake --build build -j$(nproc)
+
+          # Vérifier la présence du binaire final
+          ls -lh build/mksc_nx.nro
 
       - name: Upload Release (Stage 3)
         if: startsWith(github.ref, 'refs/tags/v')
