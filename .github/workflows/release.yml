@@ -20,14 +20,28 @@ jobs:
         with:
           submodules: false
 
+      # Décode le BIOS depuis le secret GitHub sans rien commiter dans Git
+      - name: Setup BIOS from secret
+        env:
+          BIOS_SECRET: ${{ secrets.GBA_BIOS_BASE64 }}
+        run: |
+          mkdir -p bios
+          if [ -n "$BIOS_SECRET" ]; then
+            echo "$BIOS_SECRET" | base64 -d > bios/gba_bios.bin
+            echo "gba_bios.bin généré avec succès depuis le secret."
+          else
+            echo "::error::Secret GBA_BIOS_BASE64 manquant !"
+            exit 1
+          fi
+
       - name: Host Build Codegen and Recompile BIOS (Stage 1)
         run: |
           rm -rf build_host && mkdir build_host && cd build_host
           cmake ..
-          # 1. Compiler UNIQUEMENT l'outil de recompilation natif
+          # 1. Compiler uniquement l'outil de transpilation natif
           cmake --build . --target gba_recompile -j$(nproc)
           
-          # 2. Localiser l'exécutable gba_recompile sans supposer de chemin rigide
+          # 2. Localiser l'exécutable gba_recompile
           RECOMPILE_BIN=$(find . -type f -name gba_recompile -executable | head -n 1)
           echo "Utilisation de gba_recompile : $RECOMPILE_BIN"
 
@@ -43,7 +57,7 @@ jobs:
           $RECOMPILE_BIN --bios ../bios/gba_bios.bin $CONFIG_FLAG --out ../gbarecomp/src/runtime/generated_bios/
           cd ..
 
-          # 5. Vérifier que bios_recompiled.cpp est bien apparu
+          # 5. Vérifier que bios_recompiled.cpp est généré
           echo "--- Contenu de generated_bios ---"
           ls -la gbarecomp/src/runtime/generated_bios/
 
@@ -53,7 +67,7 @@ jobs:
           export DEVKITA64=/opt/devkitpro/devkitA64
           export PATH=/opt/devkitpro/tools/bin:/opt/devkitpro/devkitA64/bin:$PATH
 
-          # Configuration CMake avec la toolchain Nintendo Switch et Scanline HLE
+          # Configuration CMake avec la toolchain Switch et Scanline HLE
           cmake -B build \
             -DCMAKE_TOOLCHAIN_FILE=$DEVKITPRO/cmake/Switch.cmake \
             -DGBARECOMP_SCANLINE_IMPLEMENTATION=HLE
