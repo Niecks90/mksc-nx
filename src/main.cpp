@@ -240,7 +240,6 @@ int main(int argc, char** argv) {
         opts.high_resolution_affine_provider = nullptr;
     }
 
-    opts.audio_enabled = g_config_audio;
 
     static char arg_prog[]        = "mksc_nx";
     static char arg_bios_flag[]   = "--bios";
