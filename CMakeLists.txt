@@ -79,6 +79,7 @@ set(GBAGAME_RECOMP_UI OFF)
 if (CMAKE_SYSTEM_NAME STREQUAL "Switch" OR __SWITCH__ OR SWITCH)
     set(GBARECOMP_RUNTIME_UI_ROOT "" CACHE PATH "" FORCE)
 endif()
+set(GBARECOMP_SCANLINE_IMPLEMENTATION "HLE" CACHE STRING "" FORCE)
 add_subdirectory("${GBARECOMP_ROOT}" gbarecomp_build EXCLUDE_FROM_ALL)
 enable_testing()
 add_executable(mksc_extended_view_tests
