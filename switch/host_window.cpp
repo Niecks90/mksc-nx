@@ -1961,7 +1961,7 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
 uint64_t overlay_game_thread_compile_ns();
 
 void HostWindow::push_audio_samples(const int16_t* samples, std::size_t count) {
-    extern bool g_config_audio;
+    extern "C" bool g_config_audio;
     if (!g_config_audio) return;
     if (!open_ || !impl_ || !samples || count == 0) return;
     auto* b = static_cast<Backend*>(impl_);
