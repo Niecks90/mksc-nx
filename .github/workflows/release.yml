@@ -20,15 +20,22 @@ jobs:
         with:
           submodules: false
 
-      - name: Verify Codegen (Stage 1)
+      - name: Host Build Codegen (Stage 1)
         run: |
-          # Since generated sources are required but untracked, touch empty files to bypass CMake errors on CI
+          rm -rf build_host && mkdir build_host && cd build_host
+          cmake ..
+          cmake --build . --target MarioKartSuperCircuitRecomp -j$(nproc)
+          cd ..
           mkdir -p generated
-          touch generated/recompiled.cpp generated/symbol_map.cpp generated/data_symbol_map.cpp generated/dispatch_table.cpp generated/recompiled_000.cpp
+          ls -la generated/
+
 
       - name: Build Switch NRO (Stage 2)
         run: |
           export DEVKITPRO=/opt/devkitpro
+          # Fix devkitpro package manager and install deps if needed (usually handled by the container)
+          # dkp-pacman -Syu --noconfirm switch-dev switch-sdl2 switch-glad switch-glm
+
           export DEVKITA64=/opt/devkitpro/devkitA64
           export PATH=/opt/devkitpro/tools/bin:/opt/devkitpro/devkitA64/bin:$PATH
 
