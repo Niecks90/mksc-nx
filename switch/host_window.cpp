@@ -1960,10 +1960,11 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
 // (We are already inside namespace gbarecomp, so declare it unqualified.)
 uint64_t overlay_game_thread_compile_ns();
 
+extern "C" bool g_config_audio;
+
 void HostWindow::push_audio_samples(const int16_t* samples, std::size_t count) {
-    extern "C" bool g_config_audio;
-    if (!g_config_audio) return;
     if (!open_ || !impl_ || !samples || count == 0) return;
+    if (!g_config_audio) return;
     auto* b = static_cast<Backend*>(impl_);
     if (b->audio_dev == 0) return;
 
