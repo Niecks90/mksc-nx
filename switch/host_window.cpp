@@ -1782,8 +1782,11 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
         vsync_env && *vsync_env && *vsync_env != '0';
     const bool vsync_disabled =
         no_vsync_env && *no_vsync_env && *no_vsync_env != '0';
-    const bool want_vsync =
-        vsync_requested && !vsync_disabled;
+#if defined(__SWITCH__)
+    const bool want_vsync = !vsync_disabled;
+#else
+    const bool want_vsync = vsync_requested && !vsync_disabled;
+#endif
     const Uint32 renderer_flags = SDL_RENDERER_ACCELERATED |
         (want_vsync ? static_cast<Uint32>(SDL_RENDERER_PRESENTVSYNC)
                     : Uint32{0});
