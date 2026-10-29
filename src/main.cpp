@@ -87,7 +87,7 @@ int main(int argc, char** argv) {
     mkdir("sdmc:/switch/mksc_nx", 0777);
     mkdir("sdmc:/switch/mksc_nx/save", 0777);
     chdir("sdmc:/switch/mksc_nx");
-    appletSetCpuBoostMode(ApmCpuBoostMode_Type1);
+    appletSetCpuBoostMode(ApmCpuBoostMode_Type2);
     setenv("GBARECOMP_BIOS_HLE", "1", 1);
     setenv("GBARECOMP_DIAGNOSTICS", "0", 1);
     setenv("GBARECOMP_PRESENT_IN_PLACE", "1", 1);
