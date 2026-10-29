@@ -1892,7 +1892,11 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
     want.freq     = 65536;
     want.format   = AUDIO_S16SYS;
     want.channels = 1;
-    want.samples  = 1024;  // ~15 ms callback quantum at 65 kHz
+#if defined(__SWITCH__)
+    want.samples = 2048;
+#else
+    want.samples = 1024;
+#endif
     const char* direct_audio_env = std::getenv("GBARECOMP_AUDIO_DIRECT");
     b->audio_direct =
         direct_audio_env && *direct_audio_env && *direct_audio_env != '0';

@@ -237,7 +237,8 @@ int main(int argc, char** argv) {
 
 #if defined(__SWITCH__)
     opts.show_fps_by_default = g_config_show_fps;
-    gba_mod_set_adaptive_view_enabled(config_widescreen ? 1 : 0);
+    extern "C" void gba_mod_set_adaptive_view_user_config(int enabled);
+    gba_mod_set_adaptive_view_user_config(config_widescreen ? 1 : 0);
     gba_mod_set_60fps_track_enabled(config_fps60 ? 1 : 0);
 
     if (!config_widescreen) {

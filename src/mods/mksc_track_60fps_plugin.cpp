@@ -33,7 +33,12 @@ void reset_track_60fps() {
     installed = false;
 }
 
+static int g_user_60fps_track_enabled = 1;
+
 void activate_track_60fps() {
+    if (!g_user_60fps_track_enabled) {
+        return;
+    }
     if (installed) return;
     previous_override = g_runtime_thumb_alu_imm_override;
     g_runtime_thumb_alu_imm_override = override_affine_buffer_selector;
@@ -54,7 +59,10 @@ GBA_MOD_CONSTRUCTOR(mksc_register_track_60fps_plugin) {
 }
 
 extern "C" void gba_mod_set_60fps_track_enabled(int enabled) {
+    g_user_60fps_track_enabled = enabled;
     if (enabled) {
         activate_track_60fps();
+    } else {
+        reset_track_60fps();
     }
 }
