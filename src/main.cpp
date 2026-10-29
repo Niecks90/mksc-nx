@@ -48,6 +48,7 @@ extern "C" const uint32_t kDispatchTableLen;
 extern "C" int gba_mod_set_adaptive_view_enabled(int);
 extern "C" int gba_mod_set_60fps_track_enabled(int);
 extern "C" bool g_config_audio = true;
+extern "C" void gba_mod_set_adaptive_view_user_config(int enabled);
 bool g_config_show_fps = false;
 
 struct GameThreadArgs {
@@ -237,7 +238,6 @@ int main(int argc, char** argv) {
 
 #if defined(__SWITCH__)
     opts.show_fps_by_default = g_config_show_fps;
-    extern "C" void gba_mod_set_adaptive_view_user_config(int enabled);
     gba_mod_set_adaptive_view_user_config(config_widescreen ? 1 : 0);
     gba_mod_set_60fps_track_enabled(config_fps60 ? 1 : 0);
 
