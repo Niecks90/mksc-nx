@@ -87,9 +87,11 @@ int main(int argc, char** argv) {
     mkdir("sdmc:/switch/mksc_nx", 0777);
     mkdir("sdmc:/switch/mksc_nx/save", 0777);
     chdir("sdmc:/switch/mksc_nx");
+    appletSetCpuBoostMode(ApmCpuBoostMode_Type1);
     setenv("GBARECOMP_BIOS_HLE", "1", 1);
     setenv("GBARECOMP_DIAGNOSTICS", "0", 1);
     setenv("GBARECOMP_PRESENT_IN_PLACE", "1", 1);
+    setenv("GBARECOMP_VSYNC", "1", 1);
 
     FILE* log_f = fopen("sdmc:/switch/mksc_nx/boot.log", "w");
     if (log_f) {
@@ -234,6 +236,7 @@ int main(int argc, char** argv) {
 #endif
 
 #if defined(__SWITCH__)
+    opts.show_fps_by_default = g_config_show_fps;
     gba_mod_set_adaptive_view_enabled(config_widescreen ? 1 : 0);
     gba_mod_set_60fps_track_enabled(config_fps60 ? 1 : 0);
 
