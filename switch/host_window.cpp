@@ -2866,13 +2866,8 @@ HostWindow::Events HostWindow::pump() {
                 e.window.event == SDL_WINDOWEVENT_RESIZED) {
                 int w = e.window.data1;
                 int h = e.window.data2;
-                if (w == 1920 && h == 1080) {
-                    // Docked
-                    if (b->renderer) SDL_RenderSetLogicalSize(b->renderer, 1920, 1080);
-                } else if (w == 1280 && h == 720) {
-                    // Handheld
-                    if (b->renderer) SDL_RenderSetLogicalSize(b->renderer, 1280, 720);
-                }
+                // Removed hardcoded SDL_RenderSetLogicalSize on resize;
+                // use standard engine letterboxing instead.
             }
 #endif
             if (e.window.event == SDL_WINDOWEVENT_CLOSE) {
