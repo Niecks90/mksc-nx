@@ -2,6 +2,7 @@
 #include <cstring>
 #include <string>
 #include <vector>
+#include <algorithm>
 
 #include "runtime.h"
 #include "mksc_extended_view.h"
@@ -141,24 +142,43 @@ int main(int argc, char** argv) {
     bool config_linear_filter = false;
     g_config_show_fps = false;
 
-    std::string config_path = "sdmc:/switch/mksc_nx/config.txt";
-    std::ifstream config_file(config_path);
+    std::string config_paths[] = {
+        "sdmc:/switch/mksc_nx/config.txt",
+        "sdmc:/switch/mksc-nx/config.txt",
+        "./config.txt"
+    };
+
+    std::string loaded_config_path;
+    std::ifstream config_file;
+    for (const auto& path : config_paths) {
+        config_file.open(path);
+        if (config_file.is_open()) {
+            loaded_config_path = path;
+            break;
+        }
+    }
+
     if (config_file.is_open()) {
+        log_boot("Loaded config from %s\n", loaded_config_path.c_str());
         std::string line;
         while (std::getline(config_file, line)) {
-            if (line.find("widescreen = 0") != std::string::npos) config_widescreen = false;
-            if (line.find("widescreen = 1") != std::string::npos) config_widescreen = true;
-            if (line.find("fps60 = 0") != std::string::npos) config_fps60 = false;
-            if (line.find("fps60 = 1") != std::string::npos) config_fps60 = true;
-            if (line.find("linear_filter = 0") != std::string::npos) config_linear_filter = false;
-            if (line.find("linear_filter = 1") != std::string::npos) config_linear_filter = true;
-            if (line.find("show_fps = 0") != std::string::npos) g_config_show_fps = false;
-            if (line.find("show_fps = 1") != std::string::npos) g_config_show_fps = true;
-            if (line.find("audio = 0") != std::string::npos) g_config_audio = false;
-            if (line.find("audio = 1") != std::string::npos) g_config_audio = true;
+            // Strip whitespace
+            line.erase(std::remove_if(line.begin(), line.end(), ::isspace), line.end());
+
+            if (line.find("widescreen=0") != std::string::npos) config_widescreen = false;
+            if (line.find("widescreen=1") != std::string::npos) config_widescreen = true;
+            if (line.find("fps60=0") != std::string::npos) config_fps60 = false;
+            if (line.find("fps60=1") != std::string::npos) config_fps60 = true;
+            if (line.find("linear_filter=0") != std::string::npos) config_linear_filter = false;
+            if (line.find("linear_filter=1") != std::string::npos) config_linear_filter = true;
+            if (line.find("show_fps=0") != std::string::npos) g_config_show_fps = false;
+            if (line.find("show_fps=1") != std::string::npos) g_config_show_fps = true;
+            if (line.find("audio=0") != std::string::npos) g_config_audio = false;
+            if (line.find("audio=1") != std::string::npos) g_config_audio = true;
         }
     } else {
-        std::ofstream new_config(config_path);
+        log_boot("Config not found, creating default at sdmc:/switch/mksc_nx/config.txt\n");
+        std::ofstream new_config("sdmc:/switch/mksc_nx/config.txt");
         new_config << "widescreen = 1\n";
         new_config << "fps60 = 1\n";
         new_config << "linear_filter = 0\n";
