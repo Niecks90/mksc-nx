@@ -37,6 +37,7 @@ static int g_user_60fps_track_enabled = 1;
 
 void activate_track_60fps() {
     if (!g_user_60fps_track_enabled) {
+        if (installed) reset_track_60fps();
         return;
     }
     if (installed) return;

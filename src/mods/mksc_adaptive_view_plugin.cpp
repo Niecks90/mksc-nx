@@ -16,11 +16,16 @@ void activate_adaptive_view() {
         (void)gba_mod_set_view_width(0);
         return;
     }
+#if defined(__SWITCH__)
+    (void)gba_mod_set_adaptive_view_enabled(1);
+    (void)gba_mod_set_view_width(284);
+#else
     const char* mode = gba_mod_option_value(
         "mario-kart-super-circuit.enhancement.adaptive-view", "adaptive-view", "view");
     const bool fixed = mode && std::strcmp(mode, "16:9") == 0;
     (void)gba_mod_set_adaptive_view_enabled(fixed ? 0 : 1);
     (void)gba_mod_set_view_width(fixed ? 284 : 0);
+#endif
 }
 
 } // namespace
