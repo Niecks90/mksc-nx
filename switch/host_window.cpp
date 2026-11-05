@@ -1476,12 +1476,18 @@ PresentationLayout current_presentation_layout(Backend* b, int* out_w, int* out_
         // live client dimensions that selected its logical width, so the
         // texture and destination cannot disagree on backends whose renderer
         // output stays pinned to the original streaming target.
+#if defined(__SWITCH__)
+        if (SDL_GetRendererOutputSize(b->renderer, &drawable_w, &drawable_h) != 0) {
+            SDL_GetWindowSize(b->window, &drawable_w, &drawable_h);
+        }
+#else
         if (b->resize_driven_view) {
             SDL_GetWindowSize(b->window, &drawable_w, &drawable_h);
         } else if (SDL_GetRendererOutputSize(
                        b->renderer, &drawable_w, &drawable_h) != 0) {
             SDL_GetWindowSize(b->window, &drawable_w, &drawable_h);
         }
+#endif
         layout = b->resize_driven_view
             ? compute_adaptive_presentation_layout(drawable_w, drawable_h, b->base_w, b->base_h)
             : compute_presentation_layout(drawable_w, drawable_h, b->base_w, b->base_h);
@@ -1711,8 +1717,13 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
         b->hotkeys[h] = parse_hotkey(kHotkeyDefaults[h]);
     // Linear vs nearest scaling is a texture-creation-time hint.
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, linear_filter ? "linear" : "nearest");
+#if defined(__SWITCH__)
+    const int win_w = 1280;
+    const int win_h = 720;
+#else
     const int win_w = base_w * scale;
     const int win_h = base_h * scale;
+#endif
     Uint32 window_flags = SDL_WINDOW_SHOWN | SDL_WINDOW_OPENGL |
         ((b->expanded_view || b->resize_driven_view ||
           b->freely_resizable_window)
@@ -2215,6 +2226,11 @@ bool HostWindow::drawable_size(int* width, int* height) const {
     // target while the client window is resized, so use the authoritative
     // live client extent first. HiDPI scaling is uniform and does not alter
     // the aspect ratio used by the policy.
+#if defined(__SWITCH__)
+    if (SDL_GetRendererOutputSize(b->renderer, width, height) == 0 && *width > 0 && *height > 0) {
+        return true;
+    }
+#endif
     SDL_GetWindowSize(b->window, width, height);
     if (*width > 0 && *height > 0) return true;
     return SDL_GetRendererOutputSize(b->renderer, width, height) == 0 &&

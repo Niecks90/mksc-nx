@@ -225,10 +225,25 @@ int main(int argc, char** argv) {
     opts.mod_game_id = "mario-kart-super-circuit-us";
     opts.mod_owns_adaptive_view = true;
     opts.high_resolution_affine_provider = &mksc::high_resolution_affine_provider;
+#if defined(__SWITCH__)
+    if (config_widescreen) {
+        opts.max_view_width = 480;
+        opts.max_resize_view_width = 480;
+        opts.resize_driven_view = true;
+        opts.extended_view_init = &mksc::install_extended_view;
+    } else {
+        opts.max_view_width = 240;
+        opts.max_resize_view_width = 240;
+        opts.resize_driven_view = false;
+        opts.extended_view_init = nullptr;
+        opts.high_resolution_affine_provider = nullptr;
+    }
+#else
     opts.max_view_width = 480;
     opts.max_resize_view_width = 480;
     opts.resize_driven_view = true;
     opts.extended_view_init = &mksc::install_extended_view;
+#endif
     // Zero retains existing mod selections when upgrading an older config.
     // Explicit Display modes override the optional view mod for this run.
     static const char* const view_labels[] = {"Default (Mods)", "Native (3:2)", "16:9"};
