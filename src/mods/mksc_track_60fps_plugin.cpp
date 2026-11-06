@@ -23,27 +23,36 @@ int override_affine_buffer_selector(uint32_t instruction_pc,
         : 0;
 }
 
-void reset_track_60fps() {
-    if (!installed) return;
-    if (g_runtime_thumb_alu_imm_override ==
-        override_affine_buffer_selector) {
-        g_runtime_thumb_alu_imm_override = previous_override;
-    }
-    previous_override = nullptr;
-    installed = false;
-}
-
 static int g_user_60fps_track_enabled = 1;
 
 void activate_track_60fps() {
     if (!g_user_60fps_track_enabled) {
-        if (installed) reset_track_60fps();
+        if (installed) {
+            if (g_runtime_thumb_alu_imm_override == override_affine_buffer_selector) {
+                g_runtime_thumb_alu_imm_override = previous_override;
+            }
+            previous_override = nullptr;
+            installed = false;
+        }
         return;
     }
     if (installed) return;
     previous_override = g_runtime_thumb_alu_imm_override;
     g_runtime_thumb_alu_imm_override = override_affine_buffer_selector;
     installed = true;
+}
+
+void reset_track_60fps() {
+    if (installed) {
+        if (g_runtime_thumb_alu_imm_override == override_affine_buffer_selector) {
+            g_runtime_thumb_alu_imm_override = previous_override;
+        }
+        previous_override = nullptr;
+        installed = false;
+    }
+    if (g_user_60fps_track_enabled) {
+        activate_track_60fps();
+    }
 }
 
 }  // namespace
@@ -64,6 +73,12 @@ extern "C" void gba_mod_set_60fps_track_enabled(int enabled) {
     if (enabled) {
         activate_track_60fps();
     } else {
-        reset_track_60fps();
+        if (installed) {
+            if (g_runtime_thumb_alu_imm_override == override_affine_buffer_selector) {
+                g_runtime_thumb_alu_imm_override = previous_override;
+            }
+            previous_override = nullptr;
+            installed = false;
+        }
     }
 }

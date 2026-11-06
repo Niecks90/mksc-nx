@@ -140,6 +140,7 @@ int main(int argc, char** argv) {
     bool config_widescreen = true;
     bool config_fps60 = true;
     bool config_linear_filter = false;
+    bool config_high_res_affine = false;
     g_config_show_fps = false;
 
     std::string config_paths[] = {
@@ -171,6 +172,8 @@ int main(int argc, char** argv) {
             if (line.find("fps60=1") != std::string::npos) config_fps60 = true;
             if (line.find("linear_filter=0") != std::string::npos) config_linear_filter = false;
             if (line.find("linear_filter=1") != std::string::npos) config_linear_filter = true;
+            if (line.find("high_res_affine=0") != std::string::npos) config_high_res_affine = false;
+            if (line.find("high_res_affine=1") != std::string::npos) config_high_res_affine = true;
             if (line.find("show_fps=0") != std::string::npos) g_config_show_fps = false;
             if (line.find("show_fps=1") != std::string::npos) g_config_show_fps = true;
             if (line.find("audio=0") != std::string::npos) g_config_audio = false;
@@ -181,11 +184,12 @@ int main(int argc, char** argv) {
         std::ofstream new_config("sdmc:/switch/mksc_nx/config.txt");
         new_config << "widescreen = 1\n";
         new_config << "fps60 = 1\n";
+        new_config << "high_res_affine = 0\n";
         new_config << "linear_filter = 0\n";
         new_config << "show_fps = 0\n";
         new_config << "audio = 1\n";
     }
-    log_boot("Config: widescreen=%d, fps60=%d, linear_filter=%d, show_fps=%d\n", config_widescreen, config_fps60, config_linear_filter, g_config_show_fps);
+    log_boot("Config: widescreen=%d, fps60=%d, high_res_affine=%d, linear_filter=%d, show_fps=%d\n", config_widescreen, config_fps60, config_high_res_affine, config_linear_filter, g_config_show_fps);
 #endif
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--version") == 0) {
@@ -224,8 +228,8 @@ int main(int argc, char** argv) {
     opts.builtin_rom_crc32 = 0xED316E37u;
     opts.mod_game_id = "mario-kart-super-circuit-us";
     opts.mod_owns_adaptive_view = true;
-    opts.high_resolution_affine_provider = &mksc::high_resolution_affine_provider;
 #if defined(__SWITCH__)
+    opts.high_resolution_affine_provider = config_high_res_affine ? &mksc::high_resolution_affine_provider : nullptr;
     if (config_widescreen) {
         opts.max_view_width = 480;
         opts.max_resize_view_width = 480;
@@ -236,9 +240,9 @@ int main(int argc, char** argv) {
         opts.max_resize_view_width = 240;
         opts.resize_driven_view = false;
         opts.extended_view_init = nullptr;
-        opts.high_resolution_affine_provider = nullptr;
     }
 #else
+    opts.high_resolution_affine_provider = &mksc::high_resolution_affine_provider;
     opts.max_view_width = 480;
     opts.max_resize_view_width = 480;
     opts.resize_driven_view = true;
@@ -276,11 +280,6 @@ int main(int argc, char** argv) {
     gba_mod_set_adaptive_view_user_config(config_widescreen ? 1 : 0);
     gba_mod_set_60fps_track_enabled(config_fps60 ? 1 : 0);
 
-    if (!config_widescreen) {
-        opts.high_resolution_affine_provider = nullptr;
-    }
-
-
     static char arg_prog[]        = "mksc_nx";
     static char arg_bios_flag[]   = "--bios";
     static char arg_bios_path[]   = "sdmc:/switch/mksc_nx/gba_bios.bin";
@@ -310,7 +309,7 @@ int main(int argc, char** argv) {
 
     Thread game_thread;
     constexpr size_t kStackSize = 32 * 1024 * 1024; // 32 MiB stack
-    Result rc = threadCreate(&game_thread, game_runner_thread, &thread_args, nullptr, kStackSize, 0x2C, -2);
+    Result rc = threadCreate(&game_thread, game_runner_thread, &thread_args, nullptr, kStackSize, 0x2C, 1);
     if (R_FAILED(rc)) {
         log_boot("ERROR: Failed to create game thread (rc=0x%x)!\n", rc);
         return 1;
