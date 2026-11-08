@@ -2103,6 +2103,54 @@ void render_scanline_wide_impl(uint8_t* rgb, int y, uint16_t dispcnt,
         const uint8_t* map_base = vram + screen_base;
         const uint8_t* tile_base = vram + char_base;
 
+        // Fast-path Switch: Mode 7 sans filtre bilinéaire (16:9 direct)
+        if (!filter) {
+            if (wrap) {
+                for (uint32_t x = 0; x < out_w; ++x) {
+                    const int32_t sample_x = curr_x;
+                    const int32_t sample_y = curr_y;
+                    curr_x += dx;
+                    curr_y += dy;
+                    if (!useful(x, bg_key) || !layer_enabled(x, layer)) continue;
+                    const uint32_t tex_x = static_cast<uint32_t>(sample_x >> 8) & static_cast<uint32_t>(wrap_mask);
+                    const uint32_t tex_y = static_cast<uint32_t>(sample_y >> 8) & static_cast<uint32_t>(wrap_mask);
+                    const uint32_t map_off = (tex_y >> 3) * static_cast<uint32_t>(bg_tiles) + (tex_x >> 3);
+                    if (screen_base + map_off >= 96u * 1024u) continue;
+                    const uint8_t tile_index = map_base[map_off];
+                    const uint32_t tile_offset = (static_cast<uint32_t>(tile_index) << 6) + ((tex_y & 7) << 3) + (tex_x & 7);
+                    if (char_base + tile_offset >= 96u * 1024u) continue;
+                    const uint8_t pal_idx = tile_base[tile_offset];
+                    if (pal_idx == 0) continue;
+                    const uint16_t color = load_u16_le(&pal[pal_idx * 2]);
+                    submit(x, color, bg_key, static_cast<uint8_t>(layer),
+                           blend_enabled(x) && target1_enabled, target2_enabled);
+                }
+            } else {
+                for (uint32_t x = 0; x < out_w; ++x) {
+                    const int32_t sample_x = curr_x;
+                    const int32_t sample_y = curr_y;
+                    curr_x += dx;
+                    curr_y += dy;
+                    if (!useful(x, bg_key) || !layer_enabled(x, layer)) continue;
+                    const int32_t tex_x = sample_x >> 8;
+                    const int32_t tex_y = sample_y >> 8;
+                    if (static_cast<uint32_t>(tex_x) >= static_cast<uint32_t>(bg_pixels) ||
+                        static_cast<uint32_t>(tex_y) >= static_cast<uint32_t>(bg_pixels)) continue;
+                    const uint32_t map_off = (static_cast<uint32_t>(tex_y >> 3) * static_cast<uint32_t>(bg_tiles)) + static_cast<uint32_t>(tex_x >> 3);
+                    if (screen_base + map_off >= 96u * 1024u) continue;
+                    const uint8_t tile_index = map_base[map_off];
+                    const uint32_t tile_offset = (static_cast<uint32_t>(tile_index) << 6) + ((tex_y & 7) << 3) + (tex_x & 7);
+                    if (char_base + tile_offset >= 96u * 1024u) continue;
+                    const uint8_t pal_idx = tile_base[tile_offset];
+                    if (pal_idx == 0) continue;
+                    const uint16_t color = load_u16_le(&pal[pal_idx * 2]);
+                    submit(x, color, bg_key, static_cast<uint8_t>(layer),
+                           blend_enabled(x) && target1_enabled, target2_enabled);
+                }
+            }
+            return;
+        }
+
         auto sample_color = [&](int32_t tex_x, int32_t tex_y,
                                 uint16_t* out_color) -> bool {
             if (wrap) {
@@ -2354,6 +2402,8 @@ void render_scanline_wide_impl(uint8_t* rgb, int y, uint16_t dispcnt,
             if (native_equivalent && authored_y && authored_sy!=sy) *native_equivalent=false;
             if (!native_row && !authored_y) continue;
             if (authored_y) sy = authored_sy;
+            const int max_h = rot_scale ? (disable_or_double ? sh * 2 : sh) : sh;
+            if (y < sy || y >= sy + max_h) continue;
             auto resolve_sx = [&] {
                 int provided_sx = sx;
                 if (g_ws_obj_attr_x_provider &&
@@ -3184,6 +3234,9 @@ void GbaPpu::latch_framebuffer(uint16_t dispcnt,
 }
 
 void GbaPpu::mark_framebuffer_latched() {
+#if defined(__SWITCH__)
+    g_ppu_worker.wait_all();
+#endif
 #if defined(GBARECOMP_NATIVE_DRAW_JOBS)
     if (auto frame = native_builder_.finish()) {
         native_latched_ = std::move(frame);
