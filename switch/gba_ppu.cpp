@@ -1,6 +1,8 @@
 #if defined(__SWITCH__)
 #include <switch.h>
 #include <atomic>
+#include <mutex>
+#include <condition_variable>
 #endif
 // gba_ppu.cpp â€” see gba_ppu.h.
 
@@ -1055,48 +1057,41 @@ void render_scanline_impl(uint8_t* rgb,
         int bg_tiles  = bg_pixels / 8;
         int bg_priority = static_cast<int>(bgcnt & 0x3u);
 
-        int32_t dx = read_s16(io, param_off + 0x00);
+        int32_t pa = read_s16(io, param_off + 0x00);
         int32_t pb = read_s16(io, param_off + 0x02);
-        int32_t dy = read_s16(io, param_off + 0x04);
+        int32_t pc = read_s16(io, param_off + 0x04);
         int32_t pd = read_s16(io, param_off + 0x06);
         int32_t refx = read_s28_ref(io, param_off + 0x08);
         int32_t refy = read_s28_ref(io, param_off + 0x0C);
-        int32_t curr_x = refx + static_cast<int32_t>(y) * pb;
-        int32_t curr_y = refy + static_cast<int32_t>(y) * pd;
-
-        int32_t wrap_mask = bg_pixels - 1;
-        int bg_key = static_cast<int>(bg_priority * 256 + 128 + layer);
-        bool target1_enabled = (first_targets & (1u << layer)) != 0;
-        bool target2_enabled = (second_targets & (1u << layer)) != 0;
-        const uint8_t* map_base = vram + screen_base;
-        const uint8_t* tile_base = vram + char_base;
-
+        int32_t xt = refx + static_cast<int32_t>(y) * pb;
+        int32_t yt = refy + static_cast<int32_t>(y) * pd;
         for (uint32_t x = 0; x < kScreenWidth; ++x) {
-            int32_t tex_x = curr_x >> 8;
-            int32_t tex_y = curr_y >> 8;
-            curr_x += dx;
-            curr_y += dy;
+            int32_t tex_x = xt >> 8;
+            int32_t tex_y = yt >> 8;
+            xt += pa;
+            yt += pc;
             if (!layer_enabled(x, layer)) continue;
             if (wrap) {
-                tex_x &= wrap_mask;
-                tex_y &= wrap_mask;
+                tex_x &= (bg_pixels - 1);
+                tex_y &= (bg_pixels - 1);
             } else if (tex_x < 0 || tex_x >= bg_pixels ||
                        tex_y < 0 || tex_y >= bg_pixels) {
                 continue;
             }
-            uint32_t map_off = (tex_y >> 3) * bg_tiles + (tex_x >> 3);
-            if (screen_base + map_off >= 96u * 1024u) continue;
-            uint8_t tile_index = map_base[map_off];
-            uint32_t tile_offset = tile_index * 64u + (tex_y & 7) * 8 + (tex_x & 7);
-            if (char_base + tile_offset >= 96u * 1024u) continue;
-            uint8_t pal_idx = tile_base[tile_offset];
+            uint32_t map_off = screen_base + (tex_y >> 3) * bg_tiles + (tex_x >> 3);
+            if (map_off >= 96u * 1024u) continue;
+            uint8_t tile_index = vram[map_off];
+            uint32_t tile_addr = char_base + tile_index * 64u +
+                                 (tex_y & 7) * 8 + (tex_x & 7);
+            if (tile_addr >= 96u * 1024u) continue;
+            uint8_t pal_idx = vram[tile_addr];
             if (pal_idx == 0) continue;
             const uint16_t color = load_u16_le(&pal[pal_idx * 2]);
             submit(x, color,
-                   bg_key,
+                   static_cast<int>(bg_priority * 256 + 128 + layer),
                    static_cast<uint8_t>(layer),
-                   blend_enabled(x) && target1_enabled,
-                   target2_enabled);
+                   blend_enabled(x) && ((first_targets & (1u << layer)) != 0),
+                   (second_targets & (1u << layer)) != 0);
         }
     };
 
@@ -2078,39 +2073,38 @@ void render_scanline_wide_impl(uint8_t* rgb, int y, uint16_t dispcnt,
         int bg_pixels = 128 << size_code;
         int bg_tiles  = bg_pixels / 8;
         int bg_priority = static_cast<int>(bgcnt & 0x3u);
-        int32_t dx = read_s16(io, param_off + 0x00);
+        int32_t pa = read_s16(io, param_off + 0x00);
         int32_t pb = read_s16(io, param_off + 0x02);
-        int32_t dy = read_s16(io, param_off + 0x04);
+        int32_t pc = read_s16(io, param_off + 0x04);
         int32_t pd = read_s16(io, param_off + 0x06);
         int32_t refx = read_s28_ref(io, param_off + 0x08);
         int32_t refy = read_s28_ref(io, param_off + 0x0C);
         // Extrapolate from the scanline reference using the signed logical x:
         // output column 0 is hardware x = -ox, so pre-advance by (-ox)*PA/PC.
-        int32_t curr_x = refx + static_cast<int32_t>(y) * pb +
-                     static_cast<int32_t>(-static_cast<int>(ox)) * dx;
-        int32_t curr_y = refy + static_cast<int32_t>(y) * pd +
-                     static_cast<int32_t>(-static_cast<int>(ox)) * dy;
+        int32_t xt = refx + static_cast<int32_t>(y) * pb +
+                     static_cast<int32_t>(-static_cast<int>(ox)) * pa;
+        int32_t yt = refy + static_cast<int32_t>(y) * pd +
+                     static_cast<int32_t>(-static_cast<int>(ox)) * pc;
         const bool filter =
             g_ws_affine_filter_enabled &&
             g_ws_affine_filter_provider &&
             g_ws_affine_filter_provider(
                 static_cast<int>(layer), static_cast<int>(y));
-
-        int32_t wrap_mask = bg_pixels - 1;
-        int bg_key = static_cast<int>(bg_priority * 256 + 128 + layer);
-        bool target1_enabled = (first_targets & (1u << layer)) != 0;
-        bool target2_enabled = (second_targets & (1u << layer)) != 0;
-        const uint8_t* map_base = vram + screen_base;
-        const uint8_t* tile_base = vram + char_base;
-
-        // Fast-path Switch: Mode 7 sans filtre bilinéaire (16:9 direct)
+        // Fast-path Switch: Mode 7 16:9 sans filtre bilinéaire
         if (!filter) {
+            const int32_t wrap_mask = bg_pixels - 1;
+            const int bg_key = static_cast<int>(bg_priority * 256 + 128 + layer);
+            const bool target1_enabled = (first_targets & (1u << layer)) != 0;
+            const bool target2_enabled = (second_targets & (1u << layer)) != 0;
+            const uint8_t* map_base = vram + screen_base;
+            const uint8_t* tile_base = vram + char_base;
+
             if (wrap) {
                 for (uint32_t x = 0; x < out_w; ++x) {
-                    const int32_t sample_x = curr_x;
-                    const int32_t sample_y = curr_y;
-                    curr_x += dx;
-                    curr_y += dy;
+                    const int32_t sample_x = xt;
+                    const int32_t sample_y = yt;
+                    xt += pa;
+                    yt += pc;
                     if (!useful(x, bg_key) || !layer_enabled(x, layer)) continue;
                     const uint32_t tex_x = static_cast<uint32_t>(sample_x >> 8) & static_cast<uint32_t>(wrap_mask);
                     const uint32_t tex_y = static_cast<uint32_t>(sample_y >> 8) & static_cast<uint32_t>(wrap_mask);
@@ -2121,16 +2115,15 @@ void render_scanline_wide_impl(uint8_t* rgb, int y, uint16_t dispcnt,
                     if (char_base + tile_offset >= 96u * 1024u) continue;
                     const uint8_t pal_idx = tile_base[tile_offset];
                     if (pal_idx == 0) continue;
-                    const uint16_t color = load_u16_le(&pal[pal_idx * 2]);
-                    submit(x, color, bg_key, static_cast<uint8_t>(layer),
+                    submit(x, load_u16_le(&pal[pal_idx * 2]), bg_key, static_cast<uint8_t>(layer),
                            blend_enabled(x) && target1_enabled, target2_enabled);
                 }
             } else {
                 for (uint32_t x = 0; x < out_w; ++x) {
-                    const int32_t sample_x = curr_x;
-                    const int32_t sample_y = curr_y;
-                    curr_x += dx;
-                    curr_y += dy;
+                    const int32_t sample_x = xt;
+                    const int32_t sample_y = yt;
+                    xt += pa;
+                    yt += pc;
                     if (!useful(x, bg_key) || !layer_enabled(x, layer)) continue;
                     const int32_t tex_x = sample_x >> 8;
                     const int32_t tex_y = sample_y >> 8;
@@ -2143,8 +2136,7 @@ void render_scanline_wide_impl(uint8_t* rgb, int y, uint16_t dispcnt,
                     if (char_base + tile_offset >= 96u * 1024u) continue;
                     const uint8_t pal_idx = tile_base[tile_offset];
                     if (pal_idx == 0) continue;
-                    const uint16_t color = load_u16_le(&pal[pal_idx * 2]);
-                    submit(x, color, bg_key, static_cast<uint8_t>(layer),
+                    submit(x, load_u16_le(&pal[pal_idx * 2]), bg_key, static_cast<uint8_t>(layer),
                            blend_enabled(x) && target1_enabled, target2_enabled);
                 }
             }
@@ -2154,28 +2146,32 @@ void render_scanline_wide_impl(uint8_t* rgb, int y, uint16_t dispcnt,
         auto sample_color = [&](int32_t tex_x, int32_t tex_y,
                                 uint16_t* out_color) -> bool {
             if (wrap) {
-                tex_x &= wrap_mask;
-                tex_y &= wrap_mask;
+                tex_x &= (bg_pixels - 1);
+                tex_y &= (bg_pixels - 1);
             } else if (tex_x < 0 || tex_x >= bg_pixels ||
                        tex_y < 0 || tex_y >= bg_pixels) {
                 return false;
             }
-            const uint32_t map_off = (tex_y >> 3) * bg_tiles + (tex_x >> 3);
-            if (screen_base + map_off >= 96u * 1024u) return false;
-            const uint8_t tile_index = map_base[map_off];
-            const uint32_t tile_offset = tile_index * 64u + (tex_y & 7) * 8 + (tex_x & 7);
-            if (char_base + tile_offset >= 96u * 1024u) return false;
-            const uint8_t pal_idx = tile_base[tile_offset];
+            const uint32_t map_off =
+                screen_base + (tex_y >> 3) * bg_tiles + (tex_x >> 3);
+            if (map_off >= 96u * 1024u) return false;
+            const uint8_t tile_index = vram[map_off];
+            const uint32_t tile_addr =
+                char_base + tile_index * 64u +
+                (tex_y & 7) * 8 + (tex_x & 7);
+            if (tile_addr >= 96u * 1024u) return false;
+            const uint8_t pal_idx = vram[tile_addr];
             if (pal_idx == 0) return false;
             *out_color = load_u16_le(&pal[pal_idx * 2]);
             return true;
         };
         for (uint32_t x = 0; x < out_w; ++x) {
-            const int32_t sample_x = curr_x;
-            const int32_t sample_y = curr_y;
-            curr_x += dx;
-            curr_y += dy;
-            if (!useful(x, bg_key) || !layer_enabled(x, layer)) continue;
+            const int32_t sample_x = xt;
+            const int32_t sample_y = yt;
+            xt += pa;
+            yt += pc;
+            if (!useful(x, static_cast<int>(bg_priority * 256 + 128 + layer)) ||
+                !layer_enabled(x, layer)) continue;
             const int32_t tex_x = sample_x >> 8;
             const int32_t tex_y = sample_y >> 8;
             uint16_t color = 0;
@@ -2214,10 +2210,10 @@ void render_scanline_wide_impl(uint8_t* rgb, int y, uint16_t dispcnt,
                 }
             }
             submit(x, color,
-                   bg_key,
+                   static_cast<int>(bg_priority * 256 + 128 + layer),
                    static_cast<uint8_t>(layer),
-                   blend_enabled(x) && target1_enabled,
-                   target2_enabled);
+                   blend_enabled(x) && ((first_targets & (1u << layer)) != 0),
+                   (second_targets & (1u << layer)) != 0);
         }
     };
     // Bitmap BG modes 3/4/5 â€” see the commentary on render_bitmap_bg in
@@ -2951,12 +2947,12 @@ struct PpuScanlineTask {
     uint16_t dispcnt;
     uint8_t affine_io[0x60];
     const uint8_t* vram;
-    const uint8_t* oam;
-    const uint8_t* pal;
     uint32_t ow;
     uint32_t extra_left;
     uint32_t extra_top;
     bool is_wide;
+    alignas(16) uint8_t oam[1024];
+    alignas(16) uint8_t pal[1024];
 };
 
 class PpuWorkerCore2 {
@@ -2964,18 +2960,19 @@ public:
     static constexpr size_t kQueueCap = 256;
     static constexpr size_t kQueueMask = kQueueCap - 1;
 
-    PpuScanlineTask queue[kQueueCap];
+    alignas(64) PpuScanlineTask queue[kQueueCap];
     alignas(64) std::atomic<uint32_t> head{0};
     alignas(64) std::atomic<uint32_t> tail{0};
     alignas(64) std::atomic<uint32_t> completed{0};
+    alignas(64) std::atomic<bool> sleeping{false};
     std::atomic<bool> stop{false};
     std::atomic<bool> initialized{false};
 
+    std::mutex wake_mtx;
+    std::condition_variable wake_cv;
     Thread thread{};
 
-    ~PpuWorkerCore2() {
-        shutdown();
-    }
+    ~PpuWorkerCore2() { shutdown(); }
 
     void init() {
         bool expected = false;
@@ -2989,6 +2986,11 @@ public:
     void shutdown() {
         if (!initialized.load(std::memory_order_relaxed)) return;
         stop.store(true, std::memory_order_release);
+        {
+            std::lock_guard<std::mutex> lock(wake_mtx);
+            sleeping.store(false, std::memory_order_release);
+            wake_cv.notify_all();
+        }
         ::threadWaitForExit(&thread);
         ::threadClose(&thread);
         initialized.store(false, std::memory_order_release);
@@ -2998,22 +3000,35 @@ public:
         static_cast<PpuWorkerCore2*>(arg)->worker_loop();
     }
 
-    inline void push_task(const PpuScanlineTask& task) {
+    inline void push_task(uint8_t* dst, int y, uint16_t dispcnt,
+                          const uint8_t* affine_io,
+                          const uint8_t* vram,
+                          const uint8_t* oam,
+                          const uint8_t* pal,
+                          uint32_t ow, uint32_t extra_left,
+                          uint32_t extra_top, bool is_wide) {
         if (!initialized.load(std::memory_order_relaxed)) init();
-        uint32_t h = head.load(std::memory_order_relaxed);
-        queue[h & kQueueMask] = task;
-        head.store(h + 1, std::memory_order_release);
-    }
 
-    inline bool pop_task(PpuScanlineTask& out) {
-        uint32_t t = tail.load(std::memory_order_relaxed);
-        while (true) {
-            uint32_t h = head.load(std::memory_order_acquire);
-            if (static_cast<int32_t>(h - t) <= 0) return false;
-            if (tail.compare_exchange_weak(t, t + 1, std::memory_order_acq_rel, std::memory_order_relaxed)) {
-                out = queue[t & kQueueMask];
-                return true;
-            }
+        uint32_t h = head.load(std::memory_order_relaxed);
+        PpuScanlineTask& task = queue[h & kQueueMask];
+        task.dst = dst;
+        task.y = y;
+        task.dispcnt = dispcnt;
+        std::memcpy(task.affine_io, affine_io, 0x60);
+        task.vram = vram;
+        std::memcpy(task.oam, oam, 1024);
+        std::memcpy(task.pal, pal, 1024);
+        task.ow = ow;
+        task.extra_left = extra_left;
+        task.extra_top = extra_top;
+        task.is_wide = is_wide;
+
+        head.store(h + 1, std::memory_order_release);
+
+        if (__builtin_expect(sleeping.load(std::memory_order_acquire), 0)) {
+            std::lock_guard<std::mutex> lock(wake_mtx);
+            sleeping.store(false, std::memory_order_release);
+            wake_cv.notify_one();
         }
     }
 
@@ -3027,7 +3042,20 @@ public:
             render_scanline_internal(task.dst, static_cast<uint32_t>(task.y), task.dispcnt,
                                      task.affine_io, task.vram,
                                      task.oam, task.pal,
-                                     GbaPpu::kScreenWidth, GbaPpu::kScreenHeight);
+                                     task.ow, GbaPpu::kScreenHeight);
+        }
+    }
+
+    inline bool pop_and_execute() {
+        uint32_t t = tail.load(std::memory_order_relaxed);
+        while (true) {
+            uint32_t h = head.load(std::memory_order_acquire);
+            if (static_cast<int32_t>(h - t) <= 0) return false;
+            if (tail.compare_exchange_weak(t, t + 1, std::memory_order_acq_rel, std::memory_order_relaxed)) {
+                execute_task(queue[t & kQueueMask]);
+                completed.fetch_add(1, std::memory_order_release);
+                return true;
+            }
         }
     }
 
@@ -3035,12 +3063,10 @@ public:
         if (!initialized.load(std::memory_order_relaxed)) return;
         uint32_t target = head.load(std::memory_order_acquire);
 
-        PpuScanlineTask task;
-        while (pop_task(task)) {
-            execute_task(task);
-            completed.fetch_add(1, std::memory_order_release);
-        }
+        // Core 1 actively helps finish any remaining queued tasks
+        while (pop_and_execute()) {}
 
+        // Wait for Core 2 to finish its active in-flight task (if any)
         while (static_cast<int32_t>(target - completed.load(std::memory_order_acquire)) > 0) {
             asm volatile("yield" ::: "memory");
         }
@@ -3048,13 +3074,36 @@ public:
 
 private:
     void worker_loop() {
-        PpuScanlineTask task;
         while (!stop.load(std::memory_order_relaxed)) {
-            if (pop_task(task)) {
-                execute_task(task);
-                completed.fetch_add(1, std::memory_order_release);
-            } else {
+            if (pop_and_execute()) {
+                continue;
+            }
+
+            // Adaptive spin: stay awake during active frame (scanlines arrive every ~70 us)
+            bool got_task = false;
+            for (int spin = 0; spin < 20000; ++spin) {
                 asm volatile("yield" ::: "memory");
+                if (pop_and_execute()) {
+                    got_task = true;
+                    break;
+                }
+            }
+            if (got_task) continue;
+
+            // Idle for >1 ms (e.g. VBlank period): sleep until next frame
+            if (!stop.load(std::memory_order_relaxed)) {
+                std::unique_lock<std::mutex> lock(wake_mtx);
+                if (static_cast<int32_t>(head.load(std::memory_order_acquire) -
+                                         tail.load(std::memory_order_relaxed)) <= 0) {
+                    sleeping.store(true, std::memory_order_release);
+                    wake_cv.wait(lock, [&] {
+                        return stop.load(std::memory_order_relaxed) ||
+                               !sleeping.load(std::memory_order_relaxed) ||
+                               (static_cast<int32_t>(head.load(std::memory_order_acquire) -
+                                                     tail.load(std::memory_order_relaxed)) > 0);
+                    });
+                    sleeping.store(false, std::memory_order_relaxed);
+                }
             }
         }
     }
@@ -3162,6 +3211,14 @@ void GbaPpu::render_scanline(uint32_t y,
                 affine_io.data(),vram,oam,pal,render_width(),0,0,hd,&native_equivalent);
             if (native_equivalent && hd->try_render_native_line(work_fb_.data()+y*kScreenWidth*3,dispcnt)) return;
         }
+#if defined(__SWITCH__)
+        if (!hd) {
+            g_ppu_worker.push_task(work_fb_.data(), static_cast<int>(y), dispcnt,
+                                   affine_io.data(), vram, oam, pal,
+                                   kScreenWidth, 0, 0, false);
+            return;
+        }
+#endif
         render_scanline_internal(work_fb_.data(), y, dispcnt,
                                  affine_io.data(), vram, oam, pal,
                                  kScreenWidth, kScreenHeight);
@@ -3185,19 +3242,9 @@ void GbaPpu::render_scanline(uint32_t y,
         }
     }
 #if defined(__SWITCH__)
-    PpuScanlineTask task;
-    task.dst = work_fb_.data();
-    task.y = static_cast<int>(y);
-    task.dispcnt = dispcnt;
-    std::memcpy(task.affine_io, affine_io.data(), 0x60);
-    task.vram = vram;
-    task.oam = oam;
-    task.pal = pal;
-    task.ow = render_width();
-    task.extra_left = extra_left_;
-    task.extra_top = extra_top_;
-    task.is_wide = true;
-    g_ppu_worker.push_task(task);
+    g_ppu_worker.push_task(work_fb_.data(), static_cast<int>(y), dispcnt,
+                           affine_io.data(), vram, oam, pal,
+                           render_width(), extra_left_, extra_top_, true);
 #else
     render_scanline_wide(work_fb_.data(), y, dispcnt, affine_io.data(),
                          vram, oam, pal, render_width(), extra_left_, extra_top_, hd_line ? hd : nullptr);

@@ -3209,6 +3209,16 @@ ev.keyinput = keys;
     return ev;
 }
 
+void HostWindow::push_audio_block(const int16_t* samples, std::size_t count, uint32_t rate) {
+    (void)rate;
+    push_audio_samples(samples, count);
+}
+
+bool HostWindow::saved_audio_enhanced(bool& out) const {
+    out = false;
+    return false;
+}
+
 }  // namespace gbarecomp
 
 #else  // !GBARECOMP_HAVE_SDL2 — stub backend
@@ -3291,9 +3301,9 @@ HostWindow::Events HostWindow::pump() {
     return ev;
 }
 
-
-void HostWindow::push_audio_block(const short* samples, unsigned long frames, unsigned int channels) {
-    (void)samples; (void)frames; (void)channels;
+void HostWindow::push_audio_block(const int16_t* samples, std::size_t count, uint32_t rate) {
+    (void)rate;
+    push_audio_samples(samples, count);
 }
 
 bool HostWindow::saved_audio_enhanced(bool& out) const {
@@ -3304,3 +3314,4 @@ bool HostWindow::saved_audio_enhanced(bool& out) const {
 }  // namespace gbarecomp
 
 #endif  // GBARECOMP_HAVE_SDL2
+
