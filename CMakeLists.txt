@@ -54,6 +54,11 @@ configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/gbarecomp/src/runtime/overlay_compile.cpp"
     COPYONLY
 )
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/switch/gba_ppu.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/gbarecomp/src/gba/gba_ppu.cpp"
+    COPYONLY
+)
 
 
 set(GBARECOMP_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/gbarecomp" CACHE PATH "Path to gbarecomp")
