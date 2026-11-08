@@ -3291,6 +3291,16 @@ HostWindow::Events HostWindow::pump() {
     return ev;
 }
 
+
+void HostWindow::push_audio_block(const short* samples, unsigned long frames, unsigned int channels) {
+    (void)samples; (void)frames; (void)channels;
+}
+
+bool HostWindow::saved_audio_enhanced(bool& out) const {
+    out = false;
+    return false;
+}
+
 }  // namespace gbarecomp
 
 #endif  // GBARECOMP_HAVE_SDL2
