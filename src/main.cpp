@@ -92,7 +92,11 @@ int main(int argc, char** argv) {
     appletSetCpuBoostMode(ApmCpuBoostMode_Type2);
     setenv("GBARECOMP_BIOS_HLE", "1", 1);
     setenv("GBARECOMP_DIAGNOSTICS", "0", 1);
-    setenv("GBARECOMP_PRESENT_IN_PLACE", "1", 1);
+    // GBARECOMP_PRESENT_IN_PLACE removed: calling present() on the emulation
+    // thread (Core 1) while VSYNC=1 blocks SDL_RenderPresent for up to
+    // 16.67 ms/frame waiting for scanout, starving the GBA emulation loop.
+    // Let gbarecomp's presentation layer decouple the present from the tick;
+    // it maintains its own vsync cadence on its own thread.
     setenv("GBARECOMP_VSYNC", "1", 1);
 
     FILE* log_f = fopen("sdmc:/switch/mksc_nx/boot.log", "w");
