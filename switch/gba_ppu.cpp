@@ -1,11 +1,3 @@
-#if defined(__SWITCH__)
-#include <switch.h>
-#include <atomic>
-#include <mutex>
-#include <condition_variable>
-#endif
-// gba_ppu.cpp â€” see gba_ppu.h.
-
 #include "gba_ppu.h"
 #include "gba_color.h"
 #include "gba_render_profile.h"
@@ -1687,7 +1679,6 @@ void render_scanline_wide_impl(uint8_t* rgb, int y, uint16_t dispcnt,
     auto submit = [&](uint32_t x, uint16_t color, int key, uint8_t layer,
                       bool target1, bool target2) {
         if (hd) hd->submit(x, color, key, layer, target1, target2);
-        if (key >= second[x].key) return;
         PixelCandidate cand;
         cand.color = color;
 #if !defined(GBARECOMP_SCANLINE_HLE)
@@ -1699,7 +1690,7 @@ void render_scanline_wide_impl(uint8_t* rgb, int y, uint16_t dispcnt,
         cand.target2 = target2;
         cand.valid = true;
         if (key < top[x].key) { second[x] = top[x]; top[x] = cand; }
-        else { second[x] = cand; }
+        else if (key < second[x].key) { second[x] = cand; }
     };
 
     // The best two candidates of a union can be found by merging each
@@ -2939,179 +2930,6 @@ void GbaPpu::render(uint8_t* rgb,
 
 #endif
 
-
-#if defined(__SWITCH__)
-struct PpuScanlineTask {
-    uint8_t* dst;
-    int y;
-    uint16_t dispcnt;
-    uint8_t affine_io[0x60];
-    const uint8_t* vram;
-    uint32_t ow;
-    uint32_t extra_left;
-    uint32_t extra_top;
-    bool is_wide;
-    alignas(16) uint8_t oam[1024];
-    alignas(16) uint8_t pal[1024];
-};
-
-class PpuWorkerCore2 {
-public:
-    static constexpr size_t kQueueCap = 256;
-    static constexpr size_t kQueueMask = kQueueCap - 1;
-
-    alignas(64) PpuScanlineTask queue[kQueueCap];
-    alignas(64) std::atomic<uint32_t> head{0};
-    alignas(64) std::atomic<uint32_t> tail{0};
-    alignas(64) std::atomic<uint32_t> completed{0};
-    alignas(64) std::atomic<bool> sleeping{false};
-    std::atomic<bool> stop{false};
-    std::atomic<bool> initialized{false};
-
-    std::mutex wake_mtx;
-    std::condition_variable wake_cv;
-    Thread thread{};
-
-    ~PpuWorkerCore2() { shutdown(); }
-
-    void init() {
-        bool expected = false;
-        if (!initialized.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) return;
-        Result rc = ::threadCreate(&thread, worker_thunk, this, NULL, 0x40000, 0x2C, 2);
-        if (R_SUCCEEDED(rc)) {
-            ::threadStart(&thread);
-        }
-    }
-
-    void shutdown() {
-        if (!initialized.load(std::memory_order_relaxed)) return;
-        stop.store(true, std::memory_order_release);
-        {
-            std::lock_guard<std::mutex> lock(wake_mtx);
-            sleeping.store(false, std::memory_order_release);
-            wake_cv.notify_all();
-        }
-        ::threadWaitForExit(&thread);
-        ::threadClose(&thread);
-        initialized.store(false, std::memory_order_release);
-    }
-
-    static void worker_thunk(void* arg) {
-        static_cast<PpuWorkerCore2*>(arg)->worker_loop();
-    }
-
-    inline void push_task(uint8_t* dst, int y, uint16_t dispcnt,
-                          const uint8_t* affine_io,
-                          const uint8_t* vram,
-                          const uint8_t* oam,
-                          const uint8_t* pal,
-                          uint32_t ow, uint32_t extra_left,
-                          uint32_t extra_top, bool is_wide) {
-        if (!initialized.load(std::memory_order_relaxed)) init();
-
-        uint32_t h = head.load(std::memory_order_relaxed);
-        PpuScanlineTask& task = queue[h & kQueueMask];
-        task.dst = dst;
-        task.y = y;
-        task.dispcnt = dispcnt;
-        std::memcpy(task.affine_io, affine_io, 0x60);
-        task.vram = vram;
-        std::memcpy(task.oam, oam, 1024);
-        std::memcpy(task.pal, pal, 1024);
-        task.ow = ow;
-        task.extra_left = extra_left;
-        task.extra_top = extra_top;
-        task.is_wide = is_wide;
-
-        head.store(h + 1, std::memory_order_release);
-
-        if (__builtin_expect(sleeping.load(std::memory_order_acquire), 0)) {
-            std::lock_guard<std::mutex> lock(wake_mtx);
-            sleeping.store(false, std::memory_order_release);
-            wake_cv.notify_one();
-        }
-    }
-
-    static inline void execute_task(const PpuScanlineTask& task) {
-        if (task.is_wide) {
-            render_scanline_wide(task.dst, task.y, task.dispcnt,
-                                 task.affine_io, task.vram,
-                                 task.oam, task.pal, task.ow,
-                                 task.extra_left, task.extra_top, nullptr);
-        } else {
-            render_scanline_internal(task.dst, static_cast<uint32_t>(task.y), task.dispcnt,
-                                     task.affine_io, task.vram,
-                                     task.oam, task.pal,
-                                     task.ow, GbaPpu::kScreenHeight);
-        }
-    }
-
-    inline bool pop_and_execute() {
-        uint32_t t = tail.load(std::memory_order_relaxed);
-        while (true) {
-            uint32_t h = head.load(std::memory_order_acquire);
-            if (static_cast<int32_t>(h - t) <= 0) return false;
-            if (tail.compare_exchange_weak(t, t + 1, std::memory_order_acq_rel, std::memory_order_relaxed)) {
-                execute_task(queue[t & kQueueMask]);
-                completed.fetch_add(1, std::memory_order_release);
-                return true;
-            }
-        }
-    }
-
-    inline void wait_all() {
-        if (!initialized.load(std::memory_order_relaxed)) return;
-        uint32_t target = head.load(std::memory_order_acquire);
-
-        // Core 1 actively helps finish any remaining queued tasks
-        while (pop_and_execute()) {}
-
-        // Wait for Core 2 to finish its active in-flight task (if any)
-        while (static_cast<int32_t>(target - completed.load(std::memory_order_acquire)) > 0) {
-            asm volatile("yield" ::: "memory");
-        }
-    }
-
-private:
-    void worker_loop() {
-        while (!stop.load(std::memory_order_relaxed)) {
-            if (pop_and_execute()) {
-                continue;
-            }
-
-            // Adaptive spin: stay awake during active frame (scanlines arrive every ~70 us)
-            bool got_task = false;
-            for (int spin = 0; spin < 20000; ++spin) {
-                asm volatile("yield" ::: "memory");
-                if (pop_and_execute()) {
-                    got_task = true;
-                    break;
-                }
-            }
-            if (got_task) continue;
-
-            // Idle for >1 ms (e.g. VBlank period): sleep until next frame
-            if (!stop.load(std::memory_order_relaxed)) {
-                std::unique_lock<std::mutex> lock(wake_mtx);
-                if (static_cast<int32_t>(head.load(std::memory_order_acquire) -
-                                         tail.load(std::memory_order_relaxed)) <= 0) {
-                    sleeping.store(true, std::memory_order_release);
-                    wake_cv.wait(lock, [&] {
-                        return stop.load(std::memory_order_relaxed) ||
-                               !sleeping.load(std::memory_order_relaxed) ||
-                               (static_cast<int32_t>(head.load(std::memory_order_acquire) -
-                                                     tail.load(std::memory_order_relaxed)) > 0);
-                    });
-                    sleeping.store(false, std::memory_order_relaxed);
-                }
-            }
-        }
-    }
-};
-
-static PpuWorkerCore2 g_ppu_worker;
-#endif
-
 void GbaPpu::render_scanline(uint32_t y,
                              uint16_t dispcnt,
                              const uint8_t* io,
@@ -3211,14 +3029,6 @@ void GbaPpu::render_scanline(uint32_t y,
                 affine_io.data(),vram,oam,pal,render_width(),0,0,hd,&native_equivalent);
             if (native_equivalent && hd->try_render_native_line(work_fb_.data()+y*kScreenWidth*3,dispcnt)) return;
         }
-#if defined(__SWITCH__)
-        if (!hd) {
-            g_ppu_worker.push_task(work_fb_.data(), static_cast<int>(y), dispcnt,
-                                   affine_io.data(), vram, oam, pal,
-                                   kScreenWidth, 0, 0, false);
-            return;
-        }
-#endif
         render_scanline_internal(work_fb_.data(), y, dispcnt,
                                  affine_io.data(), vram, oam, pal,
                                  kScreenWidth, kScreenHeight);
@@ -3241,16 +3051,10 @@ void GbaPpu::render_scanline(uint32_t y,
                 work_fb_.data() + size_t(sy + int(extra_top_)) * render_width() * 3);
         }
     }
-#if defined(__SWITCH__)
-    g_ppu_worker.push_task(work_fb_.data(), static_cast<int>(y), dispcnt,
-                           affine_io.data(), vram, oam, pal,
-                           render_width(), extra_left_, extra_top_, true);
-#else
     render_scanline_wide(work_fb_.data(), y, dispcnt, affine_io.data(),
                          vram, oam, pal, render_width(), extra_left_, extra_top_, hd_line ? hd : nullptr);
     if (hd && !hd_line) hd->upscale_line(y + extra_top_,
         work_fb_.data() + size_t(y + extra_top_) * render_width() * 3);
-#endif
 }
 
 void GbaPpu::note_affine_reference_write(unsigned bg, bool y_axis) {
@@ -3281,9 +3085,6 @@ void GbaPpu::latch_framebuffer(uint16_t dispcnt,
 }
 
 void GbaPpu::mark_framebuffer_latched() {
-#if defined(__SWITCH__)
-    g_ppu_worker.wait_all();
-#endif
 #if defined(GBARECOMP_NATIVE_DRAW_JOBS)
     if (auto frame = native_builder_.finish()) {
         native_latched_ = std::move(frame);
