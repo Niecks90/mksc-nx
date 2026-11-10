@@ -11,7 +11,7 @@ bool installed = false;
 int override_affine_buffer_selector(uint32_t instruction_pc,
                                     uint32_t original_value,
                                     uint32_t* out_value) {
-    if (instruction_pc == kAffineBufferSelectorImmediatePc &&
+    if (__builtin_expect(instruction_pc == kAffineBufferSelectorImmediatePc, 0) &&
         original_value == 1u && out_value) {
         // The following guest SUBS becomes selector - selector, keeping the
         // HDMA-visible output buffer selected and freshly generated each frame.

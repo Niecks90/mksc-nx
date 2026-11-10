@@ -92,12 +92,13 @@ int main(int argc, char** argv) {
     appletSetCpuBoostMode(ApmCpuBoostMode_Type2);
     setenv("GBARECOMP_BIOS_HLE", "1", 1);
     setenv("GBARECOMP_DIAGNOSTICS", "0", 1);
-    // GBARECOMP_PRESENT_IN_PLACE removed: calling present() on the emulation
-    // thread (Core 1) while VSYNC=1 blocks SDL_RenderPresent for up to
-    // 16.67 ms/frame waiting for scanout, starving the GBA emulation loop.
-    // Let gbarecomp's presentation layer decouple the present from the tick;
-    // it maintains its own vsync cadence on its own thread.
-    setenv("GBARECOMP_VSYNC", "1", 1);
+    // On Switch, calling present() with SDL_RENDERER_PRESENTVSYNC on the
+    // emulation thread (Core 1) causes SDL_RenderPresent to block up to
+    // 16.67 ms/frame waiting for scanout, starving the GBA emulation loop and
+    // reducing frame rate to <= 30 FPS. Setting GBARECOMP_NO_VSYNC=1 ensures
+    // SDL_RenderPresent returns immediately, pacing smoothly at 60 FPS via audio.
+    setenv("GBARECOMP_NO_VSYNC", "1", 1);
+    unsetenv("GBARECOMP_VSYNC");
 
     FILE* log_f = fopen("sdmc:/switch/mksc_nx/boot.log", "w");
     if (log_f) {
@@ -145,6 +146,7 @@ int main(int argc, char** argv) {
     bool config_fps60 = true;
     bool config_linear_filter = false;
     bool config_high_res_affine = false;
+    bool config_vsync = false;
     g_config_show_fps = false;
 
     std::string config_paths[] = {
@@ -180,6 +182,8 @@ int main(int argc, char** argv) {
             if (line.find("high_res_affine=1") != std::string::npos) config_high_res_affine = true;
             if (line.find("show_fps=0") != std::string::npos) g_config_show_fps = false;
             if (line.find("show_fps=1") != std::string::npos) g_config_show_fps = true;
+            if (line.find("vsync=0") != std::string::npos) config_vsync = false;
+            if (line.find("vsync=1") != std::string::npos) config_vsync = true;
             if (line.find("audio=0") != std::string::npos) g_config_audio = false;
             if (line.find("audio=1") != std::string::npos) g_config_audio = true;
         }
@@ -188,12 +192,20 @@ int main(int argc, char** argv) {
         std::ofstream new_config("sdmc:/switch/mksc_nx/config.txt");
         new_config << "widescreen = 1\n";
         new_config << "fps60 = 1\n";
+        new_config << "vsync = 0\n";
         new_config << "high_res_affine = 0\n";
         new_config << "linear_filter = 0\n";
         new_config << "show_fps = 0\n";
         new_config << "audio = 1\n";
     }
-    log_boot("Config: widescreen=%d, fps60=%d, high_res_affine=%d, linear_filter=%d, show_fps=%d\n", config_widescreen, config_fps60, config_high_res_affine, config_linear_filter, g_config_show_fps);
+    if (config_vsync) {
+        setenv("GBARECOMP_VSYNC", "1", 1);
+        unsetenv("GBARECOMP_NO_VSYNC");
+    } else {
+        setenv("GBARECOMP_NO_VSYNC", "1", 1);
+        unsetenv("GBARECOMP_VSYNC");
+    }
+    log_boot("Config: widescreen=%d, fps60=%d, vsync=%d, high_res_affine=%d, linear_filter=%d, show_fps=%d\n", config_widescreen, config_fps60, config_vsync, config_high_res_affine, config_linear_filter, g_config_show_fps);
 #endif
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--version") == 0) {

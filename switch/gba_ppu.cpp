@@ -1689,8 +1689,21 @@ void render_scanline_wide_impl(uint8_t* rgb, int y, uint16_t dispcnt,
         cand.target1 = target1;
         cand.target2 = target2;
         cand.valid = true;
-        if (key < top[x].key) { second[x] = top[x]; top[x] = cand; }
-        else if (key < second[x].key) { second[x] = cand; }
+        if (key < top[x].key) {
+            // If top is an OBJ and the incoming candidate is also an OBJ,
+            // retain a valid non-OBJ background candidate in second[x]
+            // so semi-transparent sprites can still blend with the background below.
+            if (layer == 4 && top[x].layer == 4 && second[x].layer != 4 && second[x].valid) {
+                top[x] = cand;
+            } else {
+                second[x] = top[x];
+                top[x] = cand;
+            }
+        } else if (key < second[x].key) {
+            if (!(layer == 4 && second[x].layer != 4 && second[x].valid)) {
+                second[x] = cand;
+            }
+        }
     };
 
     // The best two candidates of a union can be found by merging each
@@ -2089,25 +2102,47 @@ void render_scanline_wide_impl(uint8_t* rgb, int y, uint16_t dispcnt,
             const bool target2_enabled = (second_targets & (1u << layer)) != 0;
             const uint8_t* map_base = vram + screen_base;
             const uint8_t* tile_base = vram + char_base;
+            const uint32_t tiles_shift = 4u + size_code;
+            const bool map_in_bounds = screen_base + (static_cast<uint32_t>(bg_tiles) << tiles_shift) <= 96u * 1024u;
+            const bool char_in_bounds = char_base + 16384u <= 96u * 1024u;
 
             if (wrap) {
-                for (uint32_t x = 0; x < out_w; ++x) {
-                    const int32_t sample_x = xt;
-                    const int32_t sample_y = yt;
-                    xt += pa;
-                    yt += pc;
-                    if (!useful(x, bg_key) || !layer_enabled(x, layer)) continue;
-                    const uint32_t tex_x = static_cast<uint32_t>(sample_x >> 8) & static_cast<uint32_t>(wrap_mask);
-                    const uint32_t tex_y = static_cast<uint32_t>(sample_y >> 8) & static_cast<uint32_t>(wrap_mask);
-                    const uint32_t map_off = (tex_y >> 3) * static_cast<uint32_t>(bg_tiles) + (tex_x >> 3);
-                    if (screen_base + map_off >= 96u * 1024u) continue;
-                    const uint8_t tile_index = map_base[map_off];
-                    const uint32_t tile_offset = (static_cast<uint32_t>(tile_index) << 6) + ((tex_y & 7) << 3) + (tex_x & 7);
-                    if (char_base + tile_offset >= 96u * 1024u) continue;
-                    const uint8_t pal_idx = tile_base[tile_offset];
-                    if (pal_idx == 0) continue;
-                    submit(x, load_u16_le(&pal[pal_idx * 2]), bg_key, static_cast<uint8_t>(layer),
-                           blend_enabled(x) && target1_enabled, target2_enabled);
+                if (__builtin_expect(map_in_bounds && char_in_bounds, 1)) {
+                    for (uint32_t x = 0; x < out_w; ++x) {
+                        const int32_t sample_x = xt;
+                        const int32_t sample_y = yt;
+                        xt += pa;
+                        yt += pc;
+                        if (!useful(x, bg_key) || !layer_enabled(x, layer)) continue;
+                        const uint32_t tex_x = static_cast<uint32_t>(sample_x >> 8) & static_cast<uint32_t>(wrap_mask);
+                        const uint32_t tex_y = static_cast<uint32_t>(sample_y >> 8) & static_cast<uint32_t>(wrap_mask);
+                        const uint32_t map_off = ((tex_y >> 3) << tiles_shift) | (tex_x >> 3);
+                        const uint8_t tile_index = map_base[map_off];
+                        const uint32_t tile_offset = (static_cast<uint32_t>(tile_index) << 6) | ((tex_y & 7) << 3) | (tex_x & 7);
+                        const uint8_t pal_idx = tile_base[tile_offset];
+                        if (pal_idx == 0) continue;
+                        submit(x, load_u16_le(&pal[pal_idx * 2]), bg_key, static_cast<uint8_t>(layer),
+                               blend_enabled(x) && target1_enabled, target2_enabled);
+                    }
+                } else {
+                    for (uint32_t x = 0; x < out_w; ++x) {
+                        const int32_t sample_x = xt;
+                        const int32_t sample_y = yt;
+                        xt += pa;
+                        yt += pc;
+                        if (!useful(x, bg_key) || !layer_enabled(x, layer)) continue;
+                        const uint32_t tex_x = static_cast<uint32_t>(sample_x >> 8) & static_cast<uint32_t>(wrap_mask);
+                        const uint32_t tex_y = static_cast<uint32_t>(sample_y >> 8) & static_cast<uint32_t>(wrap_mask);
+                        const uint32_t map_off = ((tex_y >> 3) << tiles_shift) | (tex_x >> 3);
+                        if (screen_base + map_off >= 96u * 1024u) continue;
+                        const uint8_t tile_index = map_base[map_off];
+                        const uint32_t tile_offset = (static_cast<uint32_t>(tile_index) << 6) | ((tex_y & 7) << 3) | (tex_x & 7);
+                        if (char_base + tile_offset >= 96u * 1024u) continue;
+                        const uint8_t pal_idx = tile_base[tile_offset];
+                        if (pal_idx == 0) continue;
+                        submit(x, load_u16_le(&pal[pal_idx * 2]), bg_key, static_cast<uint8_t>(layer),
+                               blend_enabled(x) && target1_enabled, target2_enabled);
+                    }
                 }
             } else {
                 for (uint32_t x = 0; x < out_w; ++x) {
@@ -2120,10 +2155,10 @@ void render_scanline_wide_impl(uint8_t* rgb, int y, uint16_t dispcnt,
                     const int32_t tex_y = sample_y >> 8;
                     if (static_cast<uint32_t>(tex_x) >= static_cast<uint32_t>(bg_pixels) ||
                         static_cast<uint32_t>(tex_y) >= static_cast<uint32_t>(bg_pixels)) continue;
-                    const uint32_t map_off = (static_cast<uint32_t>(tex_y >> 3) * static_cast<uint32_t>(bg_tiles)) + static_cast<uint32_t>(tex_x >> 3);
+                    const uint32_t map_off = ((static_cast<uint32_t>(tex_y) >> 3) << tiles_shift) | (static_cast<uint32_t>(tex_x) >> 3);
                     if (screen_base + map_off >= 96u * 1024u) continue;
                     const uint8_t tile_index = map_base[map_off];
-                    const uint32_t tile_offset = (static_cast<uint32_t>(tile_index) << 6) + ((tex_y & 7) << 3) + (tex_x & 7);
+                    const uint32_t tile_offset = (static_cast<uint32_t>(tile_index) << 6) | ((tex_y & 7) << 3) | (tex_x & 7);
                     if (char_base + tile_offset >= 96u * 1024u) continue;
                     const uint8_t pal_idx = tile_base[tile_offset];
                     if (pal_idx == 0) continue;
@@ -2400,7 +2435,7 @@ void render_scanline_wide_impl(uint8_t* rgb, int y, uint16_t dispcnt,
                 } else if (g_ws_obj_x_provider &&
                     g_ws_obj_x_provider(raw_sx, &provided_sx)) {
                     sx = provided_sx;
-                } else if (sx & 0x100) {
+                } else if (sx >= 384) {
                     sx -= 0x200;
                 }
                 if (native_equivalent && sx!=(raw_sx&0x100 ? raw_sx-512 : raw_sx))
