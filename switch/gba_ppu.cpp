@@ -2230,6 +2230,13 @@ public:
 
 private:
     static void thread_entry(void* arg) {
+        Thread* self = threadGetSelf();
+        const Result affinity_rc =
+            svcSetThreadCoreMask(self->handle, 2, 1u << 2);
+        std::fprintf(stderr,
+                     "mksc: PPU worker started on Core %u, affinity=0x%x rc=0x%08x\n",
+                     svcGetCurrentProcessorNumber(),
+                     1u << 2, affinity_rc);
         static_cast<PpuBandWorker*>(arg)->run();
     }
 
