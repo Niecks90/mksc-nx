@@ -3,6 +3,7 @@
 #include "host_window.h"
 
 #if defined(__SWITCH__)
+#include <arm_neon.h>
 #include <switch.h>
 #endif
 #include <stdexcept>
@@ -1428,6 +1429,71 @@ static std::uint8_t fps_glyph(char c, int row) {
     return 0;
 }
 
+#if defined(__SWITCH__)
+constexpr Uint32 kStreamTextureFormat = SDL_PIXELFORMAT_ABGR8888;
+
+static void convert_rgb24_to_rgba32(const uint8_t* src,
+                                    int src_stride,
+                                    uint8_t* dst,
+                                    int dst_stride,
+                                    int width,
+                                    int height) {
+    const uint8x16_t alpha = vdupq_n_u8(255);
+    for (int y = 0; y < height; ++y) {
+        const uint8_t* s = src + size_t(y) * size_t(src_stride);
+        uint8_t* d = dst + size_t(y) * size_t(dst_stride);
+        int x = 0;
+        for (; x + 16 <= width; x += 16) {
+            const uint8x16x3_t rgb = vld3q_u8(s + size_t(x) * 3);
+            uint8x16x4_t rgba;
+            rgba.val[0] = rgb.val[0];
+            rgba.val[1] = rgb.val[1];
+            rgba.val[2] = rgb.val[2];
+            rgba.val[3] = alpha;
+            vst4q_u8(d + size_t(x) * 4, rgba);
+        }
+        for (; x < width; ++x) {
+            d[size_t(x) * 4 + 0] = s[size_t(x) * 3 + 0];
+            d[size_t(x) * 4 + 1] = s[size_t(x) * 3 + 1];
+            d[size_t(x) * 4 + 2] = s[size_t(x) * 3 + 2];
+            d[size_t(x) * 4 + 3] = 255;
+        }
+    }
+}
+
+static void upload_rgb24_texture(Backend* b,
+                                   const uint8_t* rgb888,
+                                   int width,
+                                   int height) {
+    void* locked_pixels = nullptr;
+    int dst_pitch = 0;
+    if (SDL_LockTexture(b->texture, nullptr, &locked_pixels, &dst_pitch) == 0 &&
+        locked_pixels != nullptr && dst_pitch >= width * 4) {
+        convert_rgb24_to_rgba32(rgb888, width * 3,
+                                static_cast<uint8_t*>(locked_pixels), dst_pitch,
+                                width, height);
+        SDL_UnlockTexture(b->texture);
+        return;
+    }
+    b->presentation_upload.resize(size_t(width) * size_t(height) * 4u);
+    convert_rgb24_to_rgba32(rgb888, width * 3,
+                            b->presentation_upload.data(), width * 4,
+                            width, height);
+    SDL_UpdateTexture(b->texture, nullptr, b->presentation_upload.data(),
+                      width * 4);
+}
+#else
+constexpr Uint32 kStreamTextureFormat = SDL_PIXELFORMAT_RGB24;
+
+static void upload_rgb24_texture(Backend* b,
+                                   const uint8_t* rgb888,
+                                   int width,
+                                   int height) {
+    (void)height;
+    SDL_UpdateTexture(b->texture, nullptr, rgb888, width * 3);
+}
+#endif
+
 static void draw_fps_overlay(Backend* b, const PresentationLayout& layout) {
     if (!b->fps_readout || b->fps_value <= 0.0 || layout.width <= 0 ||
         layout.height <= 0) return;
@@ -1455,11 +1521,17 @@ static void draw_fps_overlay(Backend* b, const PresentationLayout& layout) {
         }
         for (int row = 0; row < 5; ++row) {
             const std::uint8_t bits = fps_glyph(*p, row);
-            for (int col = 0; col < 5; ++col) {
-                if (!(bits & (1u << (4 - col)))) continue;
-                SDL_Rect pixel{x + col * scale, y0 + row * scale,
-                               scale, scale};
-                SDL_RenderFillRect(b->renderer, &pixel);
+            int col = 0;
+            while (col < 5) {
+                if (!(bits & (1u << (4 - col)))) {
+                    ++col;
+                    continue;
+                }
+                const int start = col;
+                while (col < 5 && (bits & (1u << (4 - col)))) ++col;
+                SDL_Rect run{x + start * scale, y0 + row * scale,
+                             (col - start) * scale, scale};
+                SDL_RenderFillRect(b->renderer, &run);
             }
         }
         x += cell;
@@ -1917,7 +1989,7 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
 #endif
 
     b->texture = SDL_CreateTexture(b->renderer,
-                                   SDL_PIXELFORMAT_RGB24,
+                                   kStreamTextureFormat,
                                    SDL_TEXTUREACCESS_STREAMING,
                                    base_w, base_h);
     if (!b->texture) {
@@ -2224,7 +2296,7 @@ bool HostWindow::set_surface_size(int base_w, int base_h) {
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY,
                 b->linear_filter ? "linear" : "nearest");
     SDL_Texture* replacement = SDL_CreateTexture(
-        b->renderer, SDL_PIXELFORMAT_RGB24, SDL_TEXTUREACCESS_STREAMING,
+        b->renderer, kStreamTextureFormat, SDL_TEXTUREACCESS_STREAMING,
         base_w, base_h);
     if (!replacement) {
         std::fprintf(stderr,
@@ -2315,7 +2387,7 @@ void HostWindow::present(const uint8_t* rgb888, unsigned sampled_w, unsigned sam
                (info.max_texture_height > 0 && upload_h > unsigned(info.max_texture_height))) shrink();
         SDL_Texture* replacement = nullptr;
         while (upload_w != unsigned(texture_w) || upload_h != unsigned(texture_h)) {
-            replacement = SDL_CreateTexture(b->renderer, SDL_PIXELFORMAT_RGB24,
+            replacement = SDL_CreateTexture(b->renderer, kStreamTextureFormat,
                 SDL_TEXTUREACCESS_STREAMING, int(upload_w), int(upload_h));
             if (replacement) break;
             if (upload_w == 1 && upload_h == 1)
@@ -2355,7 +2427,7 @@ void HostWindow::present(const uint8_t* rgb888, unsigned sampled_w, unsigned sam
         b->color_lut->map_rgb888(rgb888, b->graded_fb.data(), texture_w, texture_h);
         rgb888 = b->graded_fb.data();
     }
-    SDL_UpdateTexture(b->texture, nullptr, rgb888, texture_w * 3);
+    upload_rgb24_texture(b, rgb888, texture_w, texture_h);
     SDL_SetRenderDrawColor(b->renderer, 7, 11, 20, 255);
     SDL_RenderClear(b->renderer);
 #if defined(__ANDROID__)

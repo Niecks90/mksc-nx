@@ -121,7 +121,15 @@ void GbaPpu::serialize(gbarecomp::debug::SnapshotWriter& w) const {
     }
 }
 
+#if defined(__SWITCH__)
+static const void* g_switch_complete_frame_owner = nullptr;
+static void switch_quiesce_scanlines(const void* owner);
+#endif
+
 void GbaPpu::deserialize(gbarecomp::debug::SnapshotReader& r) {
+#if defined(__SWITCH__)
+    switch_quiesce_scanlines(this);
+#endif
     if (high_resolution_) high_resolution_->invalidate();
     // Foreign presentation is intentionally not save-state data.  A selected
     // trusted mod must explicitly republish a newly valid buffer after load.
@@ -175,6 +183,9 @@ void GbaPpu::deserialize(gbarecomp::debug::SnapshotReader& r) {
 }
 
 void GbaPpu::reset() {
+#if defined(__SWITCH__)
+    switch_quiesce_scanlines(this);
+#endif
     if (high_resolution_) high_resolution_->invalidate();
     foreign_presentation_internal::clear();
     scanline_ = 0;
@@ -198,6 +209,9 @@ void GbaPpu::set_view_margins(uint32_t left, uint32_t right,
     const uint32_t next_bottom = bottom > kMaxExtraY ? kMaxExtraY : bottom;
     if (next_left != extra_left_ || next_right != extra_right_ ||
         next_top != extra_top_ || next_bottom != extra_bottom_) {
+#if defined(__SWITCH__)
+        switch_quiesce_scanlines(this);
+#endif
         // A latched frame is laid out at the old stride. Force one fresh
         // render after a live resize rather than interpreting it at the new
         // dimensions. Timing state and guest memory remain untouched.
@@ -1382,16 +1396,17 @@ void render_scanline_wide(uint8_t* rgb, int y, uint16_t dispcnt,
     }
     if (dispcnt & 0x0080u) { std::memset(row, 0xFF, out_w * 3); return; }
 
+    if (out_w > GbaPpu::kMaxRenderWidth) out_w = GbaPpu::kMaxRenderWidth;
     struct PixelCandidate {
 #if !defined(GBARECOMP_SCANLINE_HLE)
-        uint8_t rgb[3] = {0, 0, 0};
+        uint8_t rgb[3];
 #endif
-        uint16_t color = 0;
-        int key = 0x7FFFFFFF;
-        uint8_t layer = 5;
-        bool target1 = false;
-        bool target2 = false;
-        bool valid = false;
+        uint16_t color;
+        int key;
+        uint8_t layer;
+        bool target1;
+        bool target2;
+        bool valid;
     };
 
     const bool win0_en   = (dispcnt & 0x2000u) != 0;
@@ -1416,9 +1431,10 @@ void render_scanline_wide(uint8_t* rgb, int y, uint16_t dispcnt,
     const bool win1_row = win1_en && win_v_row(0x46, y);
     // OBJ-window stencil is built in vanilla 240-space; margin columns (hx
     // outside [0,240)) get no OBJ-window (WINOUT), consistent with WIN0/1.
-    bool obj_window_storage[GbaPpu::kScreenWidth] = {};
+    bool obj_window_storage[GbaPpu::kScreenWidth];
     bool* obj_window_mask = nullptr;
     if (objwin_en && native_row) {
+        std::memset(obj_window_storage, 0, sizeof(obj_window_storage));
         mark_obj_window_scanline(obj_window_storage, y, dispcnt, vram, oam,
                                  kVanW, kVanH);
         obj_window_mask = obj_window_storage;
@@ -1516,6 +1532,8 @@ void render_scanline_wide(uint8_t* rgb, int y, uint16_t dispcnt,
         top[x].target1 = blend_enabled(x) && ((first_targets & (1u << 5)) != 0);
         top[x].target2 = (second_targets & (1u << 5)) != 0;
         top[x].valid = true;
+        second[x].key = 0x7FFFFFFF;
+        second[x].valid = false;
     }
     auto submit = [&](uint32_t x, uint16_t color, int key, uint8_t layer,
                       bool target1, bool target2) {
@@ -2093,14 +2111,54 @@ void render_scanline_wide(uint8_t* rgb, int y, uint16_t dispcnt,
             int py = source_y & 7;
             int src_ty = vflip ? (tiles_h - 1 - ty) : ty;
             int src_py = vflip ? (7 - py) : py;
-            for (int dx = 0; dx < draw_w; ++dx) {
-                const int source_x = nearest_source_pixel(dx, sw, draw_w);
-                const int tx = source_x >> 3;
-                int src_tx = hflip ? (tiles_w - 1 - tx) : tx;
-                const int px = source_x & 7;
-                int src_px = hflip ? (7 - px) : px;
-                emit_obj(src_tx * 8 + src_px, src_ty * 8 + src_py,
-                         sx + dx + static_cast<int>(ox));
+            if (draw_w == sw && !obj_focus_active && !(authored_y && g_ws_authored_margin_layers)) {
+                const int screen_x0 = sx + static_cast<int>(ox);
+                int dx_min = std::max(0, -screen_x0);
+                int dx_max = std::min(draw_w, static_cast<int>(out_w) - screen_x0);
+                if (g_ws_obj_native_clip) {
+                    dx_min = std::max(dx_min, static_cast<int>(ox) - screen_x0);
+                    dx_max = std::min(dx_max, static_cast<int>(ox) + static_cast<int>(kVanW) - screen_x0);
+                }
+                const uint32_t row_tile_stride = obj_1d_mapping ? static_cast<uint32_t>(tiles_w) : 32u;
+                const uint32_t row_base_tile = tile_num + static_cast<uint32_t>(src_ty) * row_tile_stride * (color256 ? 2u : 1u);
+                const bool obj_blend_mode = (obj_mode == 1);
+                for (int dx = dx_min; dx < dx_max; ++dx) {
+                    const uint32_t ux = static_cast<uint32_t>(screen_x0 + dx);
+                    if (!layer_enabled(ux, 4)) continue;
+                    const int tx = dx >> 3;
+                    const int src_tx = hflip ? (tiles_w - 1 - tx) : tx;
+                    const int px = dx & 7;
+                    const int src_px = hflip ? (7 - px) : px;
+                    const uint32_t this_tile = row_base_tile + static_cast<uint32_t>(src_tx) * (color256 ? 2u : 1u);
+                    const uint32_t tile_off = obj_tile_base + this_tile * 32u;
+                    uint8_t pal_index;
+                    if (color256) {
+                        const uint32_t off = tile_off + static_cast<uint32_t>(src_py) * 8u + static_cast<uint32_t>(src_px);
+                        if (off + 1u > 96u * 1024u) continue;
+                        pal_index = vram[off];
+                        if (pal_index == 0) continue;
+                    } else {
+                        const uint32_t off = tile_off + static_cast<uint32_t>(src_py) * 4u + (static_cast<uint32_t>(src_px) >> 1);
+                        if (off + 1u > 96u * 1024u) continue;
+                        const uint8_t b = vram[off];
+                        pal_index = (src_px & 1) ? (b >> 4) : (b & 0x0Fu);
+                        if (pal_index == 0) continue;
+                        pal_index = static_cast<uint8_t>(pal_index | (palette_bank << 4));
+                    }
+                    const uint16_t color = load_u16_le(&obj_pal[pal_index * 2]);
+                    const bool t1 = obj_blend_mode && blend_enabled(ux);
+                    submit(ux, color, key, 4, t1, obj_target2);
+                }
+            } else {
+                for (int dx = 0; dx < draw_w; ++dx) {
+                    const int source_x = nearest_source_pixel(dx, sw, draw_w);
+                    const int tx = source_x >> 3;
+                    int src_tx = hflip ? (tiles_w - 1 - tx) : tx;
+                    const int px = source_x & 7;
+                    int src_px = hflip ? (7 - px) : px;
+                    emit_obj(src_tx * 8 + src_px, src_ty * 8 + src_py,
+                             sx + dx + static_cast<int>(ox));
+                }
             }
         }
     }
@@ -2185,6 +2243,8 @@ void render_scanline_wide(uint8_t* rgb, int y, uint16_t dispcnt,
 #if defined(__SWITCH__)
 namespace {
 
+constexpr int kSwitchBandLines = 16;
+
 struct PpuBandJob {
     uint8_t* dst = nullptr;
     int first_y = 0;
@@ -2198,7 +2258,32 @@ struct PpuBandJob {
     uint32_t extra_left = 0;
     uint32_t extra_top = 0;
     bool wide = false;
+    const uint8_t* line_io = nullptr;
+    std::array<uint8_t, kSwitchBandLines * 0x60> line_io_storage{};
 };
+
+void copy_job(PpuBandJob& dst, const PpuBandJob& src) {
+    dst.dst = src.dst;
+    dst.first_y = src.first_y;
+    dst.end_y = src.end_y;
+    dst.dispcnt = src.dispcnt;
+    dst.io = src.io;
+    dst.vram = src.vram;
+    dst.oam = src.oam;
+    dst.pal = src.pal;
+    dst.output_width = src.output_width;
+    dst.extra_left = src.extra_left;
+    dst.extra_top = src.extra_top;
+    dst.wide = src.wide;
+    if (src.line_io) {
+        const int lines = std::min(kSwitchBandLines, std::max(0, src.end_y - src.first_y));
+        if (lines > 0)
+            std::memcpy(dst.line_io_storage.data(), src.line_io, size_t(lines) * 0x60);
+        dst.line_io = dst.line_io_storage.data();
+    } else {
+        dst.line_io = nullptr;
+    }
+}
 
 class PpuBandWorker {
 public:
@@ -2210,34 +2295,70 @@ public:
 
     ~PpuBandWorker() { shutdown(); }
 
-    bool dispatch(const PpuBandJob& job) {
+    bool submit(const PpuBandJob& job) {
         if (!ensure_started()) return false;
         mutexLock(&mutex_);
-        while (pending_ || !done_)
+        while (queue_count_ == kQueueCapacity && !stop_) {
+            ++waiters_;
             condvarWait(&done_cv_, &mutex_);
-        job_ = job;
-        pending_ = true;
-        done_ = false;
+            --waiters_;
+        }
+        if (stop_) {
+            mutexUnlock(&mutex_);
+            return false;
+        }
+        copy_job(jobs_[queue_tail_], job);
+        queue_tail_ = (queue_tail_ + 1) % kQueueCapacity;
+        ++queue_count_;
+        const bool wake_worker = sleeping_workers_ > 0;
         mutexUnlock(&mutex_);
-        condvarWakeOne(&work_cv_);
+        if (wake_worker) condvarWakeOne(&work_cv_);
+        return true;
+    }
 
+    void wait_all() {
         mutexLock(&mutex_);
-        while (!done_)
+        while (queue_count_ != 0 || active_workers_ != 0) {
+            ++waiters_;
             condvarWait(&done_cv_, &mutex_);
+            --waiters_;
+        }
         mutexUnlock(&mutex_);
+    }
+
+    bool dispatch(const PpuBandJob& job) {
+        if (!ensure_started()) return false;
+        for (int y = job.first_y; y < job.end_y; y += kSwitchBandLines) {
+            PpuBandJob slice = job;
+            slice.first_y = y;
+            slice.end_y = std::min(job.end_y, y + kSwitchBandLines);
+            if (!submit(slice)) {
+                wait_all();
+                return false;
+            }
+        }
+        wait_all();
         return true;
     }
 
 private:
+    struct WorkerSlot {
+        PpuBandWorker* owner = nullptr;
+        int core = 0;
+        Thread thread{};
+        bool active = false;
+    };
+
     static void thread_entry(void* arg) {
+        auto* slot = static_cast<WorkerSlot*>(arg);
         Thread* self = threadGetSelf();
         const Result affinity_rc =
-            svcSetThreadCoreMask(self->handle, 2, 1u << 2);
+            svcSetThreadCoreMask(self->handle, slot->core, 1u << slot->core);
         std::fprintf(stderr,
-                     "mksc: PPU worker started on Core %u, affinity=0x%x rc=0x%08x\n",
-                     svcGetCurrentProcessorNumber(),
-                     1u << 2, affinity_rc);
-        static_cast<PpuBandWorker*>(arg)->run();
+                     "mksc: PPU worker started on Core %u (target %d), affinity=0x%x rc=0x%08x\n",
+                     svcGetCurrentProcessorNumber(), slot->core,
+                     1u << slot->core, affinity_rc);
+        slot->owner->run();
     }
 
     bool ensure_started() {
@@ -2246,29 +2367,50 @@ private:
             mutexUnlock(&mutex_);
             return true;
         }
-        stop_ = false;
-        done_ = true;
-        mutexUnlock(&mutex_);
-        const Result rc = threadCreate(&thread_, thread_entry, this, nullptr,
-                                       0x100000, 0x3B, 2);
-        if (R_FAILED(rc)) {
-            std::fprintf(stderr,
-                         "mksc: PPU Core 2 thread creation failed: 0x%08x\n",
-                         rc);
+        if (init_attempted_) {
+            mutexUnlock(&mutex_);
             return false;
         }
-        const Result start_rc = threadStart(&thread_);
-        if (R_FAILED(start_rc)) {
-            std::fprintf(stderr,
-                         "mksc: PPU Core 2 thread start failed: 0x%08x\n",
-                         start_rc);
-            threadClose(&thread_);
-            return false;
+        init_attempted_ = true;
+        stop_ = false;
+        queue_head_ = 0;
+        queue_tail_ = 0;
+        queue_count_ = 0;
+        active_workers_ = 0;
+        sleeping_workers_ = 0;
+        waiters_ = 0;
+        mutexUnlock(&mutex_);
+
+        static constexpr std::array<int, 2> kWorkerCores = {0, 2};
+        unsigned active_count = 0;
+        for (size_t i = 0; i < slots_.size(); ++i) {
+            WorkerSlot& slot = slots_[i];
+            slot.owner = this;
+            slot.core = kWorkerCores[i];
+            slot.active = false;
+            const Result rc = threadCreate(&slot.thread, thread_entry, &slot, nullptr,
+                                           0x100000, 0x2D, slot.core);
+            if (R_FAILED(rc)) {
+                std::fprintf(stderr,
+                             "mksc: PPU Core %d thread creation failed: 0x%08x\n",
+                             slot.core, rc);
+                continue;
+            }
+            const Result start_rc = threadStart(&slot.thread);
+            if (R_FAILED(start_rc)) {
+                std::fprintf(stderr,
+                             "mksc: PPU Core %d thread start failed: 0x%08x\n",
+                             slot.core, start_rc);
+                threadClose(&slot.thread);
+                continue;
+            }
+            slot.active = true;
+            ++active_count;
         }
         mutexLock(&mutex_);
-        started_ = true;
+        started_ = active_count > 0;
         mutexUnlock(&mutex_);
-        return true;
+        return active_count > 0;
     }
 
     void shutdown() {
@@ -2279,65 +2421,144 @@ private:
         }
         stop_ = true;
         mutexUnlock(&mutex_);
-        condvarWakeOne(&work_cv_);
-        threadWaitForExit(&thread_);
-        threadClose(&thread_);
+        condvarWakeAll(&work_cv_);
+        for (WorkerSlot& slot : slots_) {
+            if (!slot.active) continue;
+            threadWaitForExit(&slot.thread);
+            threadClose(&slot.thread);
+            slot.active = false;
+        }
         mutexLock(&mutex_);
         started_ = false;
+        init_attempted_ = false;
         mutexUnlock(&mutex_);
     }
 
     void run() {
+        PpuBandJob job;
         for (;;) {
-            PpuBandJob job;
             mutexLock(&mutex_);
-            while (!pending_ && !stop_)
+            while (queue_count_ == 0 && !stop_) {
+                ++sleeping_workers_;
                 condvarWait(&work_cv_, &mutex_);
-            if (stop_) {
+                --sleeping_workers_;
+            }
+            if (queue_count_ == 0 && stop_) {
                 mutexUnlock(&mutex_);
                 return;
             }
-            job = job_;
-            pending_ = false;
+            copy_job(job, jobs_[queue_head_]);
+            queue_head_ = (queue_head_ + 1) % kQueueCapacity;
+            --queue_count_;
+            ++active_workers_;
+            const bool wake_space = waiters_ > 0 && queue_count_ < kQueueCapacity;
             mutexUnlock(&mutex_);
+            if (wake_space) condvarWakeOne(&done_cv_);
 
             if (job.wide) {
                 for (int y = job.first_y; y < job.end_y; ++y) {
-                    render_scanline_wide(job.dst, y, job.dispcnt, job.io,
+                    const uint8_t* line_io = job.line_io
+                        ? job.line_io + size_t(y - job.first_y) * 0x60
+                        : job.io;
+                    render_scanline_wide(job.dst, y, job.dispcnt, line_io,
                                          job.vram, job.oam, job.pal,
                                          job.output_width, job.extra_left,
                                          job.extra_top, nullptr);
                 }
             } else {
                 for (int y = job.first_y; y < job.end_y; ++y) {
+                    const uint8_t* line_io = job.line_io
+                        ? job.line_io + size_t(y - job.first_y) * 0x60
+                        : job.io;
                     render_scanline_internal(
                         job.dst, static_cast<uint32_t>(y), job.dispcnt,
-                        job.io, job.vram, job.oam, job.pal,
+                        line_io, job.vram, job.oam, job.pal,
                         GbaPpu::kScreenWidth, GbaPpu::kScreenHeight);
                 }
             }
 
             mutexLock(&mutex_);
-            done_ = true;
-            condvarWakeOne(&done_cv_);
+            --active_workers_;
+            const bool all_done = queue_count_ == 0 && active_workers_ == 0;
+            const bool wake_done = waiters_ > 0 && all_done;
             mutexUnlock(&mutex_);
+            if (wake_done) condvarWakeAll(&done_cv_);
         }
     }
 
-    Thread thread_{};
+    std::array<WorkerSlot, 2> slots_{};
     Mutex mutex_{};
     CondVar work_cv_{};
     CondVar done_cv_{};
-    PpuBandJob job_{};
+    static constexpr unsigned kQueueCapacity = 16;
+    std::array<PpuBandJob, kQueueCapacity> jobs_{};
+    unsigned queue_head_ = 0;
+    unsigned queue_tail_ = 0;
+    unsigned queue_count_ = 0;
+    unsigned active_workers_ = 0;
+    unsigned sleeping_workers_ = 0;
+    unsigned waiters_ = 0;
+    bool init_attempted_ = false;
     bool started_ = false;
     bool stop_ = false;
-    bool pending_ = false;
-    bool done_ = true;
 };
 
 PpuBandWorker g_ppu_band_worker;
 
+struct SwitchScanlineDispatch {
+    PpuBandJob frame{};
+    std::array<uint8_t, kSwitchBandLines * 0x60> line_io{};
+    const void* owner = nullptr;
+    int next_y = 0;
+    int band_first_y = 0;
+    int band_lines = 0;
+    bool active = false;
+
+    void reset() {
+        active = false;
+        owner = nullptr;
+        next_y = 0;
+        band_first_y = 0;
+        band_lines = 0;
+    }
+
+    bool append(int y, const uint8_t* io) {
+        if (!active || y != next_y ||
+            y >= static_cast<int>(GbaPpu::kScreenHeight))
+            return false;
+        std::memcpy(line_io.data() + size_t(band_lines) * 0x60, io, 0x60);
+        ++next_y;
+        ++band_lines;
+        if (band_lines == kSwitchBandLines || y == static_cast<int>(GbaPpu::kScreenHeight) - 1) {
+            PpuBandJob job = frame;
+            job.first_y = band_first_y;
+            job.end_y = y + 1;
+            job.line_io = line_io.data();
+            if (!g_ppu_band_worker.submit(job)) {
+                reset();
+                return false;
+            }
+            if (y == static_cast<int>(GbaPpu::kScreenHeight) - 1 &&
+                next_y == static_cast<int>(GbaPpu::kScreenHeight)) {
+                g_switch_complete_frame_owner = owner;
+            }
+            band_first_y = y + 1;
+            band_lines = 0;
+        }
+        return true;
+    }
+};
+
+SwitchScanlineDispatch g_switch_scanlines;
+
 }  // namespace
+
+static void switch_quiesce_scanlines(const void* owner) {
+    g_ppu_band_worker.wait_all();
+    g_switch_scanlines.reset();
+    if (g_switch_complete_frame_owner == owner)
+        g_switch_complete_frame_owner = nullptr;
+}
 #endif
 
 void GbaPpu::render(uint8_t* rgb,
@@ -2698,7 +2919,37 @@ void GbaPpu::render_scanline(uint32_t y,
         foreign_presentation_internal::background() ||
         foreign_presentation_internal::screen_overlay() ? nullptr : high_resolution_provider_,
         g_ws_affine_filter_enabled != 0);
+
+#if defined(__SWITCH__)
+    const auto queue_switch_line = [&]() {
+        if (hd || presentation_) return false;
+        if (y == 0) {
+            switch_quiesce_scanlines(this);
+            g_switch_scanlines.owner = this;
+            g_switch_scanlines.frame.dst = work_fb_.data();
+            g_switch_scanlines.frame.dispcnt = dispcnt;
+            g_switch_scanlines.frame.io = io;
+            g_switch_scanlines.frame.vram = vram;
+            g_switch_scanlines.frame.oam = oam;
+            g_switch_scanlines.frame.pal = pal;
+            g_switch_scanlines.frame.output_width = render_width();
+            g_switch_scanlines.frame.extra_left = extra_left_;
+            g_switch_scanlines.frame.extra_top = extra_top_;
+            g_switch_scanlines.frame.wide = view_expanded();
+            g_switch_scanlines.active = true;
+        }
+        if (!g_switch_scanlines.active) return false;
+        if (g_switch_scanlines.append(int(y), affine_io.data())) return true;
+        g_switch_scanlines.active = false;
+        g_ppu_band_worker.wait_all();
+        return false;
+    };
+#endif
+
     if (!view_expanded()) {
+#if defined(__SWITCH__)
+        if (!hd_line && queue_switch_line()) return;
+#endif
         render_scanline_internal(work_fb_.data(), y, dispcnt,
                                  affine_io.data(), vram, oam, pal,
                                  kScreenWidth, kScreenHeight);
@@ -2721,6 +2972,9 @@ void GbaPpu::render_scanline(uint32_t y,
                 work_fb_.data() + size_t(sy + int(extra_top_)) * render_width() * 3);
         }
     }
+#if defined(__SWITCH__)
+    if (!hd_line && queue_switch_line()) return;
+#endif
     render_scanline_wide(work_fb_.data(), y, dispcnt, affine_io.data(),
                          vram, oam, pal, render_width(), extra_left_, extra_top_, hd_line ? hd : nullptr);
     if (hd && !hd_line) hd->upscale_line(y + extra_top_,
@@ -2763,8 +3017,22 @@ void GbaPpu::latch_framebuffer(uint16_t dispcnt,
 }
 
 void GbaPpu::mark_framebuffer_latched() {
-    if (rasterization_enabled_)
+#if defined(__SWITCH__)
+    g_ppu_band_worker.wait_all();
+    const bool can_swap = (g_switch_complete_frame_owner == this);
+    g_switch_complete_frame_owner = nullptr;
+    g_switch_scanlines.reset();
+#endif
+    if (rasterization_enabled_) {
+#if defined(__SWITCH__)
+        if (can_swap)
+            work_fb_.swap(latched_fb_);
+        else
+            std::memcpy(latched_fb_.data(), work_fb_.data(), render_bytes());
+#else
         std::memcpy(latched_fb_.data(), work_fb_.data(), render_bytes());
+#endif
+    }
     has_latched_fb_ = true;
     if (high_resolution_) high_resolution_->latch();
     if (presentation_) presentation_->frame_ready();
@@ -2773,6 +3041,9 @@ void GbaPpu::mark_framebuffer_latched() {
 void GbaPpu::set_rasterization_enabled(bool enabled) {
     rasterization_enabled_ = enabled;
     if (!enabled) {
+#if defined(__SWITCH__)
+        switch_quiesce_scanlines(this);
+#endif
         std::fill(work_fb_.begin(),work_fb_.end(),0);
         std::fill(latched_fb_.begin(),latched_fb_.end(),0);
     }

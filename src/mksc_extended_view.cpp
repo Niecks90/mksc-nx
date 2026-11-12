@@ -1,10 +1,12 @@
 #include "mksc_extended_view.h"
 #include "mksc_margin_objects.h"
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <mutex>
 
 #include "gba_bus.h"
 #include "gba_ppu.h"
@@ -23,11 +25,17 @@ int (*g_previous_obj_attr_x_provider)(int, std::uint16_t, std::uint16_t,
                                       std::uint16_t, int*) = nullptr;
 int (*g_previous_affine_filter_provider)(int, int) = nullptr;
 const gba::WsMarginObjPixel* (*g_previous_margin_objects)(int,int*,int*) = nullptr;
-const gba::GbaBus* cached_bus = nullptr;
-unsigned long long cached_vblank = ~0ull;
-unsigned long long cached_epoch = ~0ull;
-bool cached_race = false;
-bool cached_battle = false;
+
+std::atomic<std::uint64_t> g_reset_gen{1};
+struct ThreadViewCache {
+    const gba::GbaBus* bus = nullptr;
+    unsigned long long vblank = ~0ull;
+    unsigned long long epoch = ~0ull;
+    std::uint64_t reset_gen = 0;
+    bool race = false;
+    bool battle = false;
+};
+thread_local ThreadViewCache t_view_cache;
 
 struct HudRect {
     int x0;
@@ -78,8 +86,8 @@ bool race_register_layout(const std::uint8_t* io) {
     return bg0cnt == 0x0700u || bg0cnt == 0x0600u;
 }
 
-bool compute_race_layout(const gba::GbaBus* bus) {
-    cached_battle = false;
+bool compute_race_layout(const gba::GbaBus* bus, bool& out_battle) {
+    out_battle = false;
     if (!bus) return false;
     const std::uint8_t* io = bus->io().raw();
     if (!race_register_layout(io)) return false;
@@ -118,7 +126,7 @@ bool compute_race_layout(const gba::GbaBus* bus) {
                 (read16(vram, map_base + (13u + i) * 2u) & 0x3FFu) != item[i])
                 return false;
         }
-        cached_battle = true;
+        out_battle = true;
         return true;
     }
     for (unsigned i = 0; i < 3; ++i) {
@@ -142,15 +150,18 @@ bool compute_race_layout(const gba::GbaBus* bus) {
 bool race_layout(const gba::GbaBus* bus) {
     // The providers below are hot (the BG remapper runs per output pixel).
     // Scene identity cannot change inside one emulated frame, so inspect the
-    // game-owned tilemap only once per VBlank rather than six times per pixel.
-    if (cached_bus != bus || cached_vblank != g_runtime_vblank_starts ||
-        cached_epoch != g_runtime_state_epoch) {
-        cached_bus = bus;
-        cached_vblank = g_runtime_vblank_starts;
-        cached_epoch = g_runtime_state_epoch;
-        cached_race = compute_race_layout(bus);
+    // game-owned tilemap only once per VBlank per thread rather than per pixel.
+    const std::uint64_t gen = g_reset_gen.load(std::memory_order_acquire);
+    ThreadViewCache& c = t_view_cache;
+    if (c.bus != bus || c.vblank != g_runtime_vblank_starts ||
+        c.epoch != g_runtime_state_epoch || c.reset_gen != gen) {
+        c.bus = bus;
+        c.vblank = g_runtime_vblank_starts;
+        c.epoch = g_runtime_state_epoch;
+        c.reset_gen = gen;
+        c.race = compute_race_layout(bus, c.battle);
     }
-    return cached_race;
+    return c.race;
 }
 
 void trace_scene_once(bool race, const std::uint8_t* io,
@@ -165,6 +176,8 @@ void trace_scene_once(bool race, const std::uint8_t* io,
     }();
     if (!enabled) return;
 
+    static std::mutex trace_mutex;
+    std::lock_guard<std::mutex> lock(trace_mutex);
     static std::uint16_t previous_dispcnt = 0xFFFFu;
     static bool previous_race = false;
     const std::uint16_t dispcnt = read16(io, 0x00);
@@ -201,7 +214,9 @@ int race_tilemap_provider(int bg, int hw_x, int screen_y,
     const std::uint8_t* io = bus->io().raw();
     const bool race = race_layout(bus);
     trace_scene_once(race, io, bus);
-    gba::g_ws_pillarbox = race ? 0 : 1;
+    const int want_pillarbox = race ? 0 : 1;
+    if (gba::g_ws_pillarbox != want_pillarbox)
+        gba::g_ws_pillarbox = want_pillarbox;
 
     if (race && (hw_x < 0 || hw_x >= 240)) {
         // BG0 carries the lap/time HUD and must not repeat. BG1/3 carry the
@@ -293,7 +308,7 @@ int race_hud_obj_x_provider(int oam_index, std::uint16_t attr0,
     // Battle HUD balloons precede its minimap markers in OAM. Their small
     // vertical cell (tile E8, palette 1) is drawn at x=24/29/34, y=24+24*player.
     // Move them with the portrait plane, without translating world balloons.
-    if (out_x && bus && g_ws_extra_left != 0 && race_layout(bus) && cached_battle &&
+    if (out_x && bus && g_ws_extra_left != 0 && race_layout(bus) && t_view_cache.battle &&
         (attr0 & 0xFF00u) == 0x8000u && (attr1 & 0xFE00u) == 0 &&
         attr2 == 0x10E8u && (raw_x == 24 || raw_x == 29 || raw_x == 34) &&
         y >= 24 && y <= 96 && (y - 24) % 24 == 0) {
@@ -380,11 +395,8 @@ void install_extended_view(std::uint32_t, std::uint32_t) {
 }
 
 void reset_extended_view() {
-    cached_bus = nullptr;
-    cached_vblank = ~0ull;
-    cached_epoch = ~0ull;
-    cached_race = false;
-    cached_battle = false;
+    g_reset_gen.fetch_add(1, std::memory_order_release);
+    t_view_cache = {};
     reset_margin_objects();
 }
 
