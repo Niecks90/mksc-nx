@@ -61,6 +61,10 @@ struct GameThreadArgs {
 
 static void game_runner_thread(void* arg) {
     auto* ctx = static_cast<GameThreadArgs*>(arg);
+    const Result affinity_rc =
+        svcSetThreadCoreMask(threadGetSelf()->handle, 1, 1u << 1);
+    log_boot("Game thread affinity=0x%x rc=0x%08x on Core %u\n",
+             1u << 1, affinity_rc, svcGetCurrentProcessorNumber());
     try {
         log_boot("Starting gbarecomp runtime inside 32 MiB stack thread...\n");
         ctx->return_code = gbarecomp::run_game(ctx->argc, ctx->argv, *ctx->opts);
