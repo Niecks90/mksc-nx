@@ -93,8 +93,6 @@ int main(int argc, char** argv) {
     mkdir("sdmc:/switch/mksc_nx", 0777);
     mkdir("sdmc:/switch/mksc_nx/save", 0777);
     chdir("sdmc:/switch/mksc_nx");
-    const Result boost_rc = appletSetCpuBoostMode(ApmCpuBoostMode_Type2);
-    log_boot("CPU boost mode Type2 rc=0x%08x\n", boost_rc);
     setenv("GBARECOMP_BIOS_HLE", "1", 1);
     setenv("GBARECOMP_DIAGNOSTICS", "0", 1);
     // On Switch, calling present() with SDL_RENDERER_PRESENTVSYNC on the
@@ -152,6 +150,7 @@ int main(int argc, char** argv) {
     bool config_linear_filter = false;
     bool config_high_res_affine = false;
     bool config_vsync = false;
+    int config_cpu_boost = 0; // 0 = Normal (1020 MHz CPU, full GPU 307/768 MHz), 1 = FastLoad (1785 MHz CPU, min GPU), 2 = Type2 (1020 MHz CPU, min GPU)
     g_config_show_fps = false;
 
     std::string config_paths[] = {
@@ -192,6 +191,9 @@ int main(int argc, char** argv) {
             if (line.find("show_fps=1") != std::string::npos) g_config_show_fps = true;
             if (line.find("vsync=0") != std::string::npos) config_vsync = false;
             if (line.find("vsync=1") != std::string::npos) config_vsync = true;
+            if (line.find("cpu_boost=0") != std::string::npos) config_cpu_boost = 0;
+            if (line.find("cpu_boost=1") != std::string::npos) config_cpu_boost = 1;
+            if (line.find("cpu_boost=2") != std::string::npos) config_cpu_boost = 2;
             if (line.find("audio=0") != std::string::npos) g_config_audio = false;
             if (line.find("audio=1") != std::string::npos) g_config_audio = true;
         }
@@ -201,11 +203,17 @@ int main(int argc, char** argv) {
         new_config << "widescreen = 1\n";
         new_config << "fps60 = 1\n";
         new_config << "vsync = 0\n";
+        new_config << "cpu_boost = 0\n";
         new_config << "high_res_affine = 0\n";
         new_config << "linear_filter = 0\n";
         new_config << "show_fps = 0\n";
         new_config << "audio = 1\n";
     }
+    ApmCpuBoostMode boost_mode = ApmCpuBoostMode_Normal;
+    if (config_cpu_boost == 1) boost_mode = ApmCpuBoostMode_FastLoad;
+    else if (config_cpu_boost == 2) boost_mode = ApmCpuBoostMode_Type2;
+    const Result boost_rc = appletSetCpuBoostMode(boost_mode);
+    log_boot("CPU boost mode %d rc=0x%08x\n", config_cpu_boost, boost_rc);
     if (config_vsync) {
         setenv("GBARECOMP_VSYNC", "1", 1);
         unsetenv("GBARECOMP_NO_VSYNC");
@@ -213,7 +221,7 @@ int main(int argc, char** argv) {
         setenv("GBARECOMP_NO_VSYNC", "1", 1);
         unsetenv("GBARECOMP_VSYNC");
     }
-    log_boot("Config: widescreen=%d, fps60=%d, vsync=%d, high_res_affine=%d, linear_filter=%d, show_fps=%d\n", config_widescreen, config_fps60, config_vsync, config_high_res_affine, config_linear_filter, g_config_show_fps);
+    log_boot("Config: widescreen=%d, fps60=%d, vsync=%d, cpu_boost=%d, high_res_affine=%d, linear_filter=%d, show_fps=%d\n", config_widescreen, config_fps60, config_vsync, config_cpu_boost, config_high_res_affine, config_linear_filter, g_config_show_fps);
 #endif
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--version") == 0) {
