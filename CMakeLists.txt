@@ -59,6 +59,11 @@ configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/gbarecomp/src/gba/gba_ppu.cpp"
     COPYONLY
 )
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/switch/host_platform.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/gbarecomp/src/runtime/host_platform.cpp"
+    COPYONLY
+)
 
 
 set(GBARECOMP_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/gbarecomp" CACHE PATH "Path to gbarecomp")

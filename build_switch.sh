@@ -17,5 +17,8 @@ cmake .. \
 if [ -f ../switch/host_window.h ] && [ -d ../gbarecomp/src/runtime ]; then
     cp -f ../switch/host_window.h ../gbarecomp/src/runtime/host_window.h
 fi
+if [ -f ../switch/host_platform.cpp ] && [ -d ../gbarecomp/src/runtime ]; then
+    cp -f ../switch/host_platform.cpp ../gbarecomp/src/runtime/host_platform.cpp
+fi
 
 make -j$(nproc)
