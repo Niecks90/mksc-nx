@@ -22,6 +22,7 @@ saves/
 *.log
 *.bmp
 *.png
+!switch/icon.png
 bios.cfg
 rom.cfg
 config.ini
