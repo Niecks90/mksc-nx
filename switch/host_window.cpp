@@ -1412,9 +1412,6 @@ void render_host_layers(Backend* b) {
 
 static std::uint8_t fps_glyph(char c, int row) {
     static constexpr std::uint8_t glyphs[][5] = {
-        {0x1F, 0x11, 0x1F, 0x10, 0x10},
-        {0x1E, 0x11, 0x1E, 0x11, 0x1E},
-        {0x0F, 0x10, 0x10, 0x10, 0x0F},
         {0x1E, 0x11, 0x11, 0x11, 0x1E},
         {0x04, 0x0C, 0x04, 0x04, 0x0E},
         {0x1E, 0x01, 0x1E, 0x10, 0x1F},
@@ -1427,10 +1424,7 @@ static std::uint8_t fps_glyph(char c, int row) {
         {0x0E, 0x11, 0x1F, 0x01, 0x0E},
     };
     if (row < 0 || row >= 5) return 0;
-    if (c == 'F') return glyphs[0][row];
-    if (c == 'P') return glyphs[1][row];
-    if (c == 'S') return glyphs[2][row];
-    if (c >= '0' && c <= '9') return glyphs[3 + c - '0'][row];
+    if (c >= '0' && c <= '9') return glyphs[c - '0'][row];
     return 0;
 }
 
@@ -1438,7 +1432,7 @@ static void draw_fps_overlay(Backend* b, const PresentationLayout& layout) {
     if (!b->fps_readout || b->fps_value <= 0.0 || layout.width <= 0 ||
         layout.height <= 0) return;
     char text[32];
-    std::snprintf(text, sizeof(text), "FPS%.1f", b->fps_value);
+    std::snprintf(text, sizeof(text), "%.1f", b->fps_value);
     const int scale = std::max(2, layout.width / 240);
     const int cell = 4 * scale;
     const int x0 = layout.x + 4 * scale;
