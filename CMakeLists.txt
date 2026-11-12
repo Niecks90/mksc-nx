@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(MarioKartSuperCircuitRecomp VERSION 0.1.8 LANGUAGES C CXX)
+project(MarioKartSuperCircuitRecomp VERSION 0.2.0 LANGUAGES C CXX)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 20)
@@ -207,8 +207,8 @@ if(NINTENDO_SWITCH OR __SWITCH__ OR SWITCH)
     target_link_libraries(MarioKartSuperCircuitRecomp PRIVATE gbarecomp_runtime gbarecomp_armv4t)
 
     add_custom_command(TARGET MarioKartSuperCircuitRecomp POST_BUILD
-        COMMAND nacptool --create "Mario Kart Super Circuit Recomp" "mstan, jellees, antimattur" "v0.1.8" $<TARGET_FILE_DIR:MarioKartSuperCircuitRecomp>/mksc_nx.nacp
-        COMMAND elf2nro $<TARGET_FILE:MarioKartSuperCircuitRecomp> $<TARGET_FILE_DIR:MarioKartSuperCircuitRecomp>/mksc_nx.nro --nacp=$<TARGET_FILE_DIR:MarioKartSuperCircuitRecomp>/mksc_nx.nacp
+        COMMAND nacptool --create "Mario Kart Super Circuit Recomp" "Niecks90" "0.2.0" $<TARGET_FILE_DIR:MarioKartSuperCircuitRecomp>/mksc_nx.nacp
+        COMMAND elf2nro $<TARGET_FILE:MarioKartSuperCircuitRecomp> $<TARGET_FILE_DIR:MarioKartSuperCircuitRecomp>/mksc_nx.nro --nacp=$<TARGET_FILE_DIR:MarioKartSuperCircuitRecomp>/mksc_nx.nacp --icon=${CMAKE_CURRENT_SOURCE_DIR}/switch/icon.png
         COMMENT "Generating mksc_nx.nro"
     )
 endif()
