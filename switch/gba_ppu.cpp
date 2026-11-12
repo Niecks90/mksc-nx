@@ -2198,6 +2198,8 @@ struct PpuBandJob {
     uint32_t extra_left = 0;
     uint32_t extra_top = 0;
     bool wide = false;
+    const uint8_t* line_io = nullptr;
+    std::array<uint8_t, 40 * 0x60> line_io_storage{};
 };
 
 class PpuBandWorker {
@@ -2210,21 +2212,39 @@ public:
 
     ~PpuBandWorker() { shutdown(); }
 
-    bool dispatch(const PpuBandJob& job) {
+    bool submit(const PpuBandJob& job) {
         if (!ensure_started()) return false;
         mutexLock(&mutex_);
-        while (pending_ || !done_)
+        while (queue_count_ == kQueueCapacity && !stop_)
             condvarWait(&done_cv_, &mutex_);
-        job_ = job;
-        pending_ = true;
-        done_ = false;
+        if (stop_) {
+            mutexUnlock(&mutex_);
+            return false;
+        }
+        PpuBandJob& queued = jobs_[queue_tail_];
+        queued = job;
+        if (job.line_io) {
+            std::memcpy(queued.line_io_storage.data(), job.line_io,
+                        queued.line_io_storage.size());
+            queued.line_io = queued.line_io_storage.data();
+        }
+        queue_tail_ = (queue_tail_ + 1) % kQueueCapacity;
+        ++queue_count_;
         mutexUnlock(&mutex_);
         condvarWakeOne(&work_cv_);
+        return true;
+    }
 
+    void wait_all() {
         mutexLock(&mutex_);
-        while (!done_)
+        while (queue_count_ != 0 || running_)
             condvarWait(&done_cv_, &mutex_);
         mutexUnlock(&mutex_);
+    }
+
+    bool dispatch(const PpuBandJob& job) {
+        if (!submit(job)) return false;
+        wait_all();
         return true;
     }
 
@@ -2247,7 +2267,10 @@ private:
             return true;
         }
         stop_ = false;
-        done_ = true;
+        queue_head_ = 0;
+        queue_tail_ = 0;
+        queue_count_ = 0;
+        running_ = false;
         mutexUnlock(&mutex_);
         const Result rc = threadCreate(&thread_, thread_entry, this, nullptr,
                                        0x100000, 0x3B, 2);
@@ -2291,34 +2314,45 @@ private:
         for (;;) {
             PpuBandJob job;
             mutexLock(&mutex_);
-            while (!pending_ && !stop_)
+            while (queue_count_ == 0 && !stop_)
                 condvarWait(&work_cv_, &mutex_);
-            if (stop_) {
+            if (queue_count_ == 0 && stop_) {
                 mutexUnlock(&mutex_);
                 return;
             }
-            job = job_;
-            pending_ = false;
+            job = jobs_[queue_head_];
+            if (job.line_io)
+                job.line_io = job.line_io_storage.data();
+            queue_head_ = (queue_head_ + 1) % kQueueCapacity;
+            --queue_count_;
+            running_ = true;
+            condvarWakeOne(&done_cv_);
             mutexUnlock(&mutex_);
 
             if (job.wide) {
                 for (int y = job.first_y; y < job.end_y; ++y) {
-                    render_scanline_wide(job.dst, y, job.dispcnt, job.io,
+                    const uint8_t* line_io = job.line_io
+                        ? job.line_io + size_t(y - job.first_y) * 0x60
+                        : job.io;
+                    render_scanline_wide(job.dst, y, job.dispcnt, line_io,
                                          job.vram, job.oam, job.pal,
                                          job.output_width, job.extra_left,
                                          job.extra_top, nullptr);
                 }
             } else {
                 for (int y = job.first_y; y < job.end_y; ++y) {
+                    const uint8_t* line_io = job.line_io
+                        ? job.line_io + size_t(y - job.first_y) * 0x60
+                        : job.io;
                     render_scanline_internal(
                         job.dst, static_cast<uint32_t>(y), job.dispcnt,
-                        job.io, job.vram, job.oam, job.pal,
+                        line_io, job.vram, job.oam, job.pal,
                         GbaPpu::kScreenWidth, GbaPpu::kScreenHeight);
                 }
             }
 
             mutexLock(&mutex_);
-            done_ = true;
+            running_ = false;
             condvarWakeOne(&done_cv_);
             mutexUnlock(&mutex_);
         }
@@ -2328,14 +2362,61 @@ private:
     Mutex mutex_{};
     CondVar work_cv_{};
     CondVar done_cv_{};
-    PpuBandJob job_{};
+    static constexpr unsigned kQueueCapacity = 2;
+    std::array<PpuBandJob, kQueueCapacity> jobs_{};
+    unsigned queue_head_ = 0;
+    unsigned queue_tail_ = 0;
+    unsigned queue_count_ = 0;
+    bool running_ = false;
     bool started_ = false;
     bool stop_ = false;
-    bool pending_ = false;
-    bool done_ = true;
 };
 
 PpuBandWorker g_ppu_band_worker;
+
+struct SwitchScanlineDispatch {
+    PpuBandJob frame{};
+    std::array<std::array<uint8_t, 40 * 0x60>, 2> line_io{};
+    unsigned buffer_index = 0;
+    int next_y = 0;
+    int band_first_y = 0;
+    int band_lines = 0;
+    bool active = false;
+
+    void reset() {
+        active = false;
+        next_y = 0;
+        band_first_y = 0;
+        band_lines = 0;
+        buffer_index = 0;
+    }
+
+    bool append(int y, const uint8_t* io) {
+        if (!active || y != next_y ||
+            y >= static_cast<int>(GbaPpu::kScreenHeight))
+            return false;
+        std::memcpy(line_io[buffer_index].data() + size_t(band_lines) * 0x60,
+                    io, 0x60);
+        ++next_y;
+        ++band_lines;
+        if (band_lines == 40 || y == GbaPpu::kScreenHeight - 1) {
+            PpuBandJob job = frame;
+            job.first_y = band_first_y;
+            job.end_y = y + 1;
+            job.line_io = line_io[buffer_index].data();
+            if (!g_ppu_band_worker.submit(job)) {
+                reset();
+                return false;
+            }
+            buffer_index ^= 1u;
+            band_first_y = y + 1;
+            band_lines = 0;
+        }
+        return true;
+    }
+};
+
+SwitchScanlineDispatch g_switch_scanlines;
 
 }  // namespace
 #endif
@@ -2698,7 +2779,36 @@ void GbaPpu::render_scanline(uint32_t y,
         foreign_presentation_internal::background() ||
         foreign_presentation_internal::screen_overlay() ? nullptr : high_resolution_provider_,
         g_ws_affine_filter_enabled != 0);
+
+#if defined(__SWITCH__)
+    const auto queue_switch_line = [&]() {
+        if (hd || presentation_) return false;
+        if (y == 0) {
+            g_switch_scanlines.reset();
+            g_switch_scanlines.frame.dst = work_fb_.data();
+            g_switch_scanlines.frame.dispcnt = dispcnt;
+            g_switch_scanlines.frame.io = io;
+            g_switch_scanlines.frame.vram = vram;
+            g_switch_scanlines.frame.oam = oam;
+            g_switch_scanlines.frame.pal = pal;
+            g_switch_scanlines.frame.output_width = render_width();
+            g_switch_scanlines.frame.extra_left = extra_left_;
+            g_switch_scanlines.frame.extra_top = extra_top_;
+            g_switch_scanlines.frame.wide = view_expanded();
+            g_switch_scanlines.active = true;
+        }
+        if (!g_switch_scanlines.active) return false;
+        if (g_switch_scanlines.append(int(y), affine_io.data())) return true;
+        g_switch_scanlines.active = false;
+        g_ppu_band_worker.wait_all();
+        return false;
+    };
+#endif
+
     if (!view_expanded()) {
+#if defined(__SWITCH__)
+        if (!hd_line && queue_switch_line()) return;
+#endif
         render_scanline_internal(work_fb_.data(), y, dispcnt,
                                  affine_io.data(), vram, oam, pal,
                                  kScreenWidth, kScreenHeight);
@@ -2721,6 +2831,9 @@ void GbaPpu::render_scanline(uint32_t y,
                 work_fb_.data() + size_t(sy + int(extra_top_)) * render_width() * 3);
         }
     }
+#if defined(__SWITCH__)
+    if (!hd_line && queue_switch_line()) return;
+#endif
     render_scanline_wide(work_fb_.data(), y, dispcnt, affine_io.data(),
                          vram, oam, pal, render_width(), extra_left_, extra_top_, hd_line ? hd : nullptr);
     if (hd && !hd_line) hd->upscale_line(y + extra_top_,
@@ -2763,6 +2876,10 @@ void GbaPpu::latch_framebuffer(uint16_t dispcnt,
 }
 
 void GbaPpu::mark_framebuffer_latched() {
+#if defined(__SWITCH__)
+    g_ppu_band_worker.wait_all();
+    g_switch_scanlines.reset();
+#endif
     if (rasterization_enabled_)
         std::memcpy(latched_fb_.data(), work_fb_.data(), render_bytes());
     has_latched_fb_ = true;
