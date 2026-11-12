@@ -1794,7 +1794,7 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
     const bool vsync_disabled =
         no_vsync_env && *no_vsync_env && *no_vsync_env != '0';
 #if defined(__SWITCH__)
-    const bool want_vsync = !vsync_disabled;
+    const bool want_vsync = false; // Ne jamais bloquer Core 1 sur le scanout HDMI
 #else
     const bool want_vsync = vsync_requested && !vsync_disabled;
 #endif

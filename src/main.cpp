@@ -169,6 +169,9 @@ int main(int argc, char** argv) {
         log_boot("Loaded config from %s\n", loaded_config_path.c_str());
         std::string line;
         while (std::getline(config_file, line)) {
+        // Ignorer les lignes vides et les commentaires
+        size_t first = line.find_first_not_of(" \t\r\n");
+        if (first == std::string::npos || line[first] == '#' || line[first] == ';') continue;
             // Strip whitespace
             line.erase(std::remove_if(line.begin(), line.end(), ::isspace), line.end());
 

@@ -15,3 +15,4 @@ cmake .. \
   -DGBARECOMP_SCANLINE_IMPLEMENTATION=HLE
 
 make -j$(nproc)
+[ -f switch/host_window.h ] && [ -d gbarecomp/src/runtime ] && cp -f switch/host_window.h gbarecomp/src/runtime/host_window.h
