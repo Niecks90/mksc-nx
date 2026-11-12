@@ -6,8 +6,6 @@
 
 #include <algorithm>
 #if defined(__SWITCH__)
-#include <condition_variable>
-#include <mutex>
 #include <switch.h>
 #endif
 #include <cstddef>
@@ -2204,21 +2202,29 @@ struct PpuBandJob {
 
 class PpuBandWorker {
 public:
+    PpuBandWorker() {
+        mutexInit(&mutex_);
+        condvarInit(&work_cv_);
+        condvarInit(&done_cv_);
+    }
+
     ~PpuBandWorker() { shutdown(); }
 
     bool dispatch(const PpuBandJob& job) {
         if (!ensure_started()) return false;
-        {
-            std::unique_lock<std::mutex> lock(mutex_);
-            done_cv_.wait(lock, [this] { return !pending_ && done_; });
-            job_ = job;
-            pending_ = true;
-            done_ = false;
-        }
-        work_cv_.notify_one();
+        mutexLock(&mutex_);
+        while (pending_ || !done_)
+            condvarWait(&done_cv_, &mutex_);
+        job_ = job;
+        pending_ = true;
+        done_ = false;
+        mutexUnlock(&mutex_);
+        condvarWakeOne(&work_cv_);
 
-        std::unique_lock<std::mutex> lock(mutex_);
-        done_cv_.wait(lock, [this] { return done_; });
+        mutexLock(&mutex_);
+        while (!done_)
+            condvarWait(&done_cv_, &mutex_);
+        mutexUnlock(&mutex_);
         return true;
     }
 
@@ -2228,10 +2234,14 @@ private:
     }
 
     bool ensure_started() {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (started_) return true;
+        mutexLock(&mutex_);
+        if (started_) {
+            mutexUnlock(&mutex_);
+            return true;
+        }
         stop_ = false;
         done_ = true;
+        mutexUnlock(&mutex_);
         const Result rc = threadCreate(&thread_, thread_entry, this, nullptr,
                                        0x100000, 0x3B, 2);
         if (R_FAILED(rc)) {
@@ -2248,32 +2258,41 @@ private:
             threadClose(&thread_);
             return false;
         }
+        mutexLock(&mutex_);
         started_ = true;
+        mutexUnlock(&mutex_);
         return true;
     }
 
     void shutdown() {
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            if (!started_) return;
-            stop_ = true;
+        mutexLock(&mutex_);
+        if (!started_) {
+            mutexUnlock(&mutex_);
+            return;
         }
-        work_cv_.notify_one();
+        stop_ = true;
+        mutexUnlock(&mutex_);
+        condvarWakeOne(&work_cv_);
         threadWaitForExit(&thread_);
         threadClose(&thread_);
+        mutexLock(&mutex_);
         started_ = false;
+        mutexUnlock(&mutex_);
     }
 
     void run() {
         for (;;) {
             PpuBandJob job;
-            {
-                std::unique_lock<std::mutex> lock(mutex_);
-                work_cv_.wait(lock, [this] { return pending_ || stop_; });
-                if (stop_) return;
-                job = job_;
-                pending_ = false;
+            mutexLock(&mutex_);
+            while (!pending_ && !stop_)
+                condvarWait(&work_cv_, &mutex_);
+            if (stop_) {
+                mutexUnlock(&mutex_);
+                return;
             }
+            job = job_;
+            pending_ = false;
+            mutexUnlock(&mutex_);
 
             if (job.wide) {
                 for (int y = job.first_y; y < job.end_y; ++y) {
@@ -2291,18 +2310,17 @@ private:
                 }
             }
 
-            {
-                std::lock_guard<std::mutex> lock(mutex_);
-                done_ = true;
-            }
-            done_cv_.notify_one();
+            mutexLock(&mutex_);
+            done_ = true;
+            condvarWakeOne(&done_cv_);
+            mutexUnlock(&mutex_);
         }
     }
 
     Thread thread_{};
-    std::mutex mutex_;
-    std::condition_variable work_cv_;
-    std::condition_variable done_cv_;
+    Mutex mutex_{};
+    CondVar work_cv_{};
+    CondVar done_cv_{};
     PpuBandJob job_{};
     bool started_ = false;
     bool stop_ = false;
