@@ -93,8 +93,8 @@ int main(int argc, char** argv) {
     mkdir("sdmc:/switch/mksc_nx", 0777);
     mkdir("sdmc:/switch/mksc_nx/save", 0777);
     chdir("sdmc:/switch/mksc_nx");
-    const Result boost_rc = appletSetCpuBoostMode(ApmCpuBoostMode_FastLoad);
-    log_boot("CPU boost mode FastLoad rc=0x%08x\n", boost_rc);
+    const Result boost_rc = appletSetCpuBoostMode(ApmCpuBoostMode_Type2);
+    log_boot("CPU boost mode Type2 rc=0x%08x\n", boost_rc);
     setenv("GBARECOMP_BIOS_HLE", "1", 1);
     setenv("GBARECOMP_DIAGNOSTICS", "0", 1);
     // On Switch, calling present() with SDL_RENDERER_PRESENTVSYNC on the
