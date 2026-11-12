@@ -683,10 +683,13 @@ void render_scanline_internal(uint8_t* rgb,
                               const uint8_t* oam,
                               const uint8_t* pal,
                               uint32_t kScreenWidth,
-                              uint32_t kScreenHeight) {
+                              uint32_t kScreenHeight,
+                              uint32_t output_stride = 0,
+                              uint32_t output_x = 0) {
     if (y >= kScreenHeight) return;
 
-    uint8_t* row = rgb + y * kScreenWidth * 3;
+    if (output_stride == 0) output_stride = kScreenWidth;
+    uint8_t* row = rgb + (y * output_stride + output_x) * 3;
     if (dispcnt & 0x0080u) {
         std::memset(row, 0xFF, kScreenWidth * 3);
         return;
@@ -1386,9 +1389,9 @@ void render_scanline_wide(uint8_t* rgb, int y, uint16_t dispcnt,
     if (native_row && g_ws_pillarbox && !g_ws_pillarbox_left &&
         !g_ws_pillarbox_right) {
         std::memset(row, 0, out_w * 3);
-        render_scanline_internal(row + ox * 3, static_cast<uint32_t>(y),
+        render_scanline_internal(rgb, static_cast<uint32_t>(y),
                                  dispcnt, io, vram, oam, pal,
-                                 kVanW, kVanH);
+                                 kVanW, kVanH, out_w, ox);
         return;
     }
     if (dispcnt & 0x0080u) { std::memset(row, 0xFF, out_w * 3); return; }
