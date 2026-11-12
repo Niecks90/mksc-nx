@@ -2747,7 +2747,18 @@ void GbaPpu::latch_framebuffer(uint16_t dispcnt,
                                const uint8_t* vram,
                                const uint8_t* oam,
                                const uint8_t* pal) {
+#if !defined(__SWITCH__)
     render(work_fb_.data(), dispcnt, io, vram, oam, pal);
+#else
+    // The runtime has already rendered every visible scanline into work_fb_
+    // during the HBlank-driven PPU tick. Rendering the complete frame again
+    // here doubled the widescreen compositor cost on the emulation thread.
+    (void)dispcnt;
+    (void)io;
+    (void)vram;
+    (void)oam;
+    (void)pal;
+#endif
     mark_framebuffer_latched();
 }
 
