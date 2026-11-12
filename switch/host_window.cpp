@@ -473,6 +473,7 @@ struct Backend {
     std::string  title;                 // base window title (readout restores it)
     Uint32       fps_window_start = 0;
     int          fps_presents = 0;
+    double       fps_value = 0.0;
     // MC-WS-002: opt-in per-present timing/scanout ring (see above).
     PresentCadence cadence;
 };
@@ -1407,6 +1408,68 @@ void render_host_layers(Backend* b) {
     SDL_RenderSetLogicalSize(b->renderer, logical_w, logical_h);
     SDL_RenderSetViewport(b->renderer, &viewport);
     SDL_SetRenderDrawBlendMode(b->renderer, SDL_BLENDMODE_NONE);
+}
+
+static std::uint8_t fps_glyph(char c, int row) {
+    static constexpr std::uint8_t glyphs[][5] = {
+        {0x1F, 0x11, 0x1F, 0x10, 0x10},
+        {0x1E, 0x11, 0x1E, 0x11, 0x1E},
+        {0x0F, 0x10, 0x10, 0x10, 0x0F},
+        {0x1E, 0x11, 0x11, 0x11, 0x1E},
+        {0x04, 0x0C, 0x04, 0x04, 0x0E},
+        {0x1E, 0x01, 0x1E, 0x10, 0x1F},
+        {0x1E, 0x01, 0x0E, 0x01, 0x1E},
+        {0x12, 0x12, 0x1F, 0x02, 0x02},
+        {0x1F, 0x10, 0x1E, 0x01, 0x1E},
+        {0x0E, 0x10, 0x1E, 0x11, 0x0E},
+        {0x1F, 0x01, 0x02, 0x04, 0x04},
+        {0x0E, 0x11, 0x0E, 0x11, 0x0E},
+        {0x0E, 0x11, 0x1F, 0x01, 0x0E},
+    };
+    if (row < 0 || row >= 5) return 0;
+    if (c == 'F') return glyphs[0][row];
+    if (c == 'P') return glyphs[1][row];
+    if (c == 'S') return glyphs[2][row];
+    if (c >= '0' && c <= '9') return glyphs[3 + c - '0'][row];
+    return 0;
+}
+
+static void draw_fps_overlay(Backend* b, const PresentationLayout& layout) {
+    if (!b->fps_readout || b->fps_value <= 0.0 || layout.width <= 0 ||
+        layout.height <= 0) return;
+    char text[32];
+    std::snprintf(text, sizeof(text), "FPS%.1f", b->fps_value);
+    const int scale = std::max(2, layout.width / 240);
+    const int cell = 4 * scale;
+    const int x0 = layout.x + 4 * scale;
+    const int y0 = layout.y + 4 * scale;
+    int chars = 0;
+    for (const char* p = text; *p; ++p)
+        if (*p != '.') ++chars;
+    SDL_SetRenderDrawBlendMode(b->renderer, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(b->renderer, 0, 0, 0, 180);
+    SDL_Rect bg{x0 - scale, y0 - scale, chars * cell + 2 * scale, 7 * scale};
+    SDL_RenderFillRect(b->renderer, &bg);
+    SDL_SetRenderDrawColor(b->renderer, 255, 255, 255, 255);
+    int x = x0;
+    for (const char* p = text; *p; ++p) {
+        if (*p == '.') {
+            SDL_Rect dot{x, y0 + 4 * scale, scale, scale};
+            SDL_RenderFillRect(b->renderer, &dot);
+            x += scale;
+            continue;
+        }
+        for (int row = 0; row < 5; ++row) {
+            const std::uint8_t bits = fps_glyph(*p, row);
+            for (int col = 0; col < 5; ++col) {
+                if (!(bits & (1u << (4 - col)))) continue;
+                SDL_Rect pixel{x + col * scale, y0 + row * scale,
+                               scale, scale};
+                SDL_RenderFillRect(b->renderer, &pixel);
+            }
+        }
+        x += cell;
+    }
 }
 
 // The presentation rectangle every present path uses, so touch mapping and
@@ -2406,6 +2469,7 @@ void HostWindow::present(const uint8_t* rgb888, unsigned sampled_w, unsigned sam
     }
 #endif
     render_host_layers(b);
+    draw_fps_overlay(b, layout);
     // MC-WS-002: time the present itself (vsync blocks here — or doesn't)
     // and stamp the DWM refresh counter into the cadence ring.
     if (b->cadence.active()) {
@@ -2424,12 +2488,13 @@ void HostWindow::present(const uint8_t* rgb888, unsigned sampled_w, unsigned sam
         if (b->fps_window_start == 0) b->fps_window_start = now;
         const Uint32 span = now - b->fps_window_start;
         if (span >= 500) {
+            b->fps_value = b->fps_presents * 1000.0 / span;
             char buf[192];
             std::snprintf(buf, sizeof(buf), "%s — %.1f fps", b->title.c_str(),
-                          b->fps_presents * 1000.0 / span);
+                          b->fps_value);
             SDL_SetWindowTitle(b->window, buf);
             std::fprintf(stderr, "[mksc-fps] %.1f\n",
-                         b->fps_presents * 1000.0 / span);
+                         b->fps_value);
             std::fflush(stderr);
             b->fps_window_start = now;
             b->fps_presents = 0;

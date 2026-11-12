@@ -683,13 +683,10 @@ void render_scanline_internal(uint8_t* rgb,
                               const uint8_t* oam,
                               const uint8_t* pal,
                               uint32_t kScreenWidth,
-                              uint32_t kScreenHeight,
-                              uint32_t output_stride = 0,
-                              uint32_t output_x = 0) {
+                              uint32_t kScreenHeight) {
     if (y >= kScreenHeight) return;
 
-    if (output_stride == 0) output_stride = kScreenWidth;
-    uint8_t* row = rgb + (y * output_stride + output_x) * 3;
+    uint8_t* row = rgb + y * kScreenWidth * 3;
     if (dispcnt & 0x0080u) {
         std::memset(row, 0xFF, kScreenWidth * 3);
         return;
@@ -1382,17 +1379,6 @@ void render_scanline_wide(uint8_t* rgb, int y, uint16_t dispcnt,
     uint8_t* row = rgb + (y + static_cast<int>(oy)) * out_w * 3;
     if (!native_row && (!g_ws_authored_margin_layers || !g_ws_tilemap_provider || g_ws_pillarbox)) {
         std::memset(row, 0, out_w * 3); return;
-    }
-    // Menus and transitions deliberately pillarbox the authored view. Render
-    // their authentic 240-pixel center with the native compositor instead of
-    // running the widescreen compositor over black margin columns.
-    if (native_row && g_ws_pillarbox && !g_ws_pillarbox_left &&
-        !g_ws_pillarbox_right) {
-        std::memset(row, 0, out_w * 3);
-        render_scanline_internal(rgb, static_cast<uint32_t>(y),
-                                 dispcnt, io, vram, oam, pal,
-                                 kVanW, kVanH, out_w, ox);
-        return;
     }
     if (dispcnt & 0x0080u) { std::memset(row, 0xFF, out_w * 3); return; }
 
