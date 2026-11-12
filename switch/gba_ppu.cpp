@@ -2199,6 +2199,7 @@ struct PpuBandJob {
     uint32_t extra_top = 0;
     bool wide = false;
     const uint8_t* line_io = nullptr;
+    std::array<uint8_t, 40 * 0x60> line_io_storage{};
 };
 
 class PpuBandWorker {
@@ -2214,11 +2215,21 @@ public:
     bool submit(const PpuBandJob& job) {
         if (!ensure_started()) return false;
         mutexLock(&mutex_);
-        while (pending_ || !done_)
+        while (queue_count_ == kQueueCapacity && !stop_)
             condvarWait(&done_cv_, &mutex_);
-        job_ = job;
-        pending_ = true;
-        done_ = false;
+        if (stop_) {
+            mutexUnlock(&mutex_);
+            return false;
+        }
+        PpuBandJob& queued = jobs_[queue_tail_];
+        queued = job;
+        if (job.line_io) {
+            std::memcpy(queued.line_io_storage.data(), job.line_io,
+                        queued.line_io_storage.size());
+            queued.line_io = queued.line_io_storage.data();
+        }
+        queue_tail_ = (queue_tail_ + 1) % kQueueCapacity;
+        ++queue_count_;
         mutexUnlock(&mutex_);
         condvarWakeOne(&work_cv_);
         return true;
@@ -2226,7 +2237,7 @@ public:
 
     void wait_all() {
         mutexLock(&mutex_);
-        while (!done_)
+        while (queue_count_ != 0 || running_)
             condvarWait(&done_cv_, &mutex_);
         mutexUnlock(&mutex_);
     }
@@ -2256,7 +2267,10 @@ private:
             return true;
         }
         stop_ = false;
-        done_ = true;
+        queue_head_ = 0;
+        queue_tail_ = 0;
+        queue_count_ = 0;
+        running_ = false;
         mutexUnlock(&mutex_);
         const Result rc = threadCreate(&thread_, thread_entry, this, nullptr,
                                        0x100000, 0x3B, 2);
@@ -2300,14 +2314,19 @@ private:
         for (;;) {
             PpuBandJob job;
             mutexLock(&mutex_);
-            while (!pending_ && !stop_)
+            while (queue_count_ == 0 && !stop_)
                 condvarWait(&work_cv_, &mutex_);
-            if (stop_) {
+            if (queue_count_ == 0 && stop_) {
                 mutexUnlock(&mutex_);
                 return;
             }
-            job = job_;
-            pending_ = false;
+            job = jobs_[queue_head_];
+            if (job.line_io)
+                job.line_io = job.line_io_storage.data();
+            queue_head_ = (queue_head_ + 1) % kQueueCapacity;
+            --queue_count_;
+            running_ = true;
+            condvarWakeOne(&done_cv_);
             mutexUnlock(&mutex_);
 
             if (job.wide) {
@@ -2333,7 +2352,7 @@ private:
             }
 
             mutexLock(&mutex_);
-            done_ = true;
+            running_ = false;
             condvarWakeOne(&done_cv_);
             mutexUnlock(&mutex_);
         }
@@ -2343,11 +2362,14 @@ private:
     Mutex mutex_{};
     CondVar work_cv_{};
     CondVar done_cv_{};
-    PpuBandJob job_{};
+    static constexpr unsigned kQueueCapacity = 2;
+    std::array<PpuBandJob, kQueueCapacity> jobs_{};
+    unsigned queue_head_ = 0;
+    unsigned queue_tail_ = 0;
+    unsigned queue_count_ = 0;
+    bool running_ = false;
     bool started_ = false;
     bool stop_ = false;
-    bool pending_ = false;
-    bool done_ = true;
 };
 
 PpuBandWorker g_ppu_band_worker;
