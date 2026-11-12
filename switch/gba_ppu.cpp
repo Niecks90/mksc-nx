@@ -2233,10 +2233,18 @@ private:
         stop_ = false;
         done_ = true;
         const Result rc = threadCreate(&thread_, thread_entry, this, nullptr,
-                                       0x40000, 0x2C, 2);
-        if (R_FAILED(rc)) return false;
+                                       0x100000, 0x3B, 2);
+        if (R_FAILED(rc)) {
+            std::fprintf(stderr,
+                         "mksc: PPU Core 2 thread creation failed: 0x%08x\n",
+                         rc);
+            return false;
+        }
         const Result start_rc = threadStart(&thread_);
         if (R_FAILED(start_rc)) {
+            std::fprintf(stderr,
+                         "mksc: PPU Core 2 thread start failed: 0x%08x\n",
+                         start_rc);
             threadClose(&thread_);
             return false;
         }
