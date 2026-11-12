@@ -150,6 +150,7 @@ int main(int argc, char** argv) {
     bool config_linear_filter = false;
     bool config_high_res_affine = false;
     bool config_vsync = false;
+    bool config_uncapped = false;
     int config_cpu_boost = 0; // 0 = Normal (1020 MHz CPU, full GPU 307/768 MHz), 1 = FastLoad (1785 MHz CPU, min GPU), 2 = Type2 (1020 MHz CPU, min GPU)
     g_config_show_fps = false;
 
@@ -173,29 +174,50 @@ int main(int argc, char** argv) {
         log_boot("Loaded config from %s\n", loaded_config_path.c_str());
         std::string line;
         while (std::getline(config_file, line)) {
-        // Ignorer les lignes vides et les commentaires
-        size_t first = line.find_first_not_of(" \t\r\n");
-        if (first == std::string::npos || line[first] == '#' || line[first] == ';') continue;
+            // Ignorer les lignes vides et les commentaires
+            size_t first = line.find_first_not_of(" \t\r\n");
+            if (first == std::string::npos || line[first] == '#' || line[first] == ';') continue;
             // Strip whitespace
             line.erase(std::remove_if(line.begin(), line.end(), ::isspace), line.end());
 
-            if (line.find("widescreen=0") != std::string::npos) config_widescreen = false;
-            if (line.find("widescreen=1") != std::string::npos) config_widescreen = true;
-            if (line.find("fps60=0") != std::string::npos) config_fps60 = false;
-            if (line.find("fps60=1") != std::string::npos) config_fps60 = true;
-            if (line.find("linear_filter=0") != std::string::npos) config_linear_filter = false;
-            if (line.find("linear_filter=1") != std::string::npos) config_linear_filter = true;
-            if (line.find("high_res_affine=0") != std::string::npos) config_high_res_affine = false;
-            if (line.find("high_res_affine=1") != std::string::npos) config_high_res_affine = true;
-            if (line.find("show_fps=0") != std::string::npos) g_config_show_fps = false;
-            if (line.find("show_fps=1") != std::string::npos) g_config_show_fps = true;
-            if (line.find("vsync=0") != std::string::npos) config_vsync = false;
-            if (line.find("vsync=1") != std::string::npos) config_vsync = true;
-            if (line.find("cpu_boost=0") != std::string::npos) config_cpu_boost = 0;
-            if (line.find("cpu_boost=1") != std::string::npos) config_cpu_boost = 1;
-            if (line.find("cpu_boost=2") != std::string::npos) config_cpu_boost = 2;
-            if (line.find("audio=0") != std::string::npos) g_config_audio = false;
-            if (line.find("audio=1") != std::string::npos) g_config_audio = true;
+            auto eq = line.find('=');
+            if (eq != std::string::npos) {
+                std::string key = line.substr(0, eq);
+                std::string val = line.substr(eq + 1);
+                for (auto& c : key) c = static_cast<char>(std::tolower(c));
+                for (auto& c : val) c = static_cast<char>(std::tolower(c));
+                const bool is_true = (val == "1" || val == "true" || val == "on" || val == "yes");
+                const bool is_false = (val == "0" || val == "false" || val == "off" || val == "no");
+
+                if (key == "widescreen") {
+                    if (is_true) config_widescreen = true;
+                    else if (is_false) config_widescreen = false;
+                } else if (key == "fps60" || key == "60fps" || key == "fps_60" || key == "60_fps" ||
+                           key == "track_60fps" || key == "track60fps" || key == "track_fps60") {
+                    if (is_true) config_fps60 = true;
+                    else if (is_false) config_fps60 = false;
+                } else if (key == "linear_filter" || key == "linearfilter") {
+                    if (is_true) config_linear_filter = true;
+                    else if (is_false) config_linear_filter = false;
+                } else if (key == "high_res_affine" || key == "highresaffine") {
+                    if (is_true) config_high_res_affine = true;
+                    else if (is_false) config_high_res_affine = false;
+                } else if (key == "show_fps" || key == "showfps") {
+                    if (is_true) g_config_show_fps = true;
+                    else if (is_false) g_config_show_fps = false;
+                } else if (key == "vsync") {
+                    if (is_true) config_vsync = true;
+                    else if (is_false) config_vsync = false;
+                } else if (key == "uncapped") {
+                    if (is_true) config_uncapped = true;
+                    else if (is_false) config_uncapped = false;
+                } else if (key == "cpu_boost" || key == "cpuboost") {
+                    config_cpu_boost = std::atoi(val.c_str());
+                } else if (key == "audio") {
+                    if (is_true) g_config_audio = true;
+                    else if (is_false) g_config_audio = false;
+                }
+            }
         }
     } else {
         log_boot("Config not found, creating default at sdmc:/switch/mksc_nx/config.txt\n");
@@ -203,6 +225,7 @@ int main(int argc, char** argv) {
         new_config << "widescreen = 1\n";
         new_config << "fps60 = 1\n";
         new_config << "vsync = 0\n";
+        new_config << "uncapped = 0\n";
         new_config << "cpu_boost = 0\n";
         new_config << "high_res_affine = 0\n";
         new_config << "linear_filter = 0\n";
@@ -221,7 +244,8 @@ int main(int argc, char** argv) {
         setenv("GBARECOMP_NO_VSYNC", "1", 1);
         unsetenv("GBARECOMP_VSYNC");
     }
-    log_boot("Config: widescreen=%d, fps60=%d, vsync=%d, cpu_boost=%d, high_res_affine=%d, linear_filter=%d, show_fps=%d\n", config_widescreen, config_fps60, config_vsync, config_cpu_boost, config_high_res_affine, config_linear_filter, g_config_show_fps);
+    log_boot("Config: widescreen=%d, fps60=%d, vsync=%d, uncapped=%d, cpu_boost=%d, high_res_affine=%d, linear_filter=%d, show_fps=%d\n",
+             config_widescreen, config_fps60, config_vsync, config_uncapped, config_cpu_boost, config_high_res_affine, config_linear_filter, g_config_show_fps);
 #endif
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--version") == 0) {
@@ -318,6 +342,7 @@ int main(int argc, char** argv) {
     static char arg_rom_flag[]    = "--rom";
     static char arg_rom_path[]    = "sdmc:/switch/mksc_nx/rom.gba";
     static char arg_linear_flag[] = "--linear-filter";
+    static char arg_uncapped_flag[] = "--uncapped";
     static char arg_hle[] = "--bios-hle";
 
     std::vector<char*> av;
@@ -330,6 +355,9 @@ int main(int argc, char** argv) {
 
     if (config_linear_filter) {
         av.push_back(arg_linear_flag);
+    }
+    if (config_uncapped) {
+        av.push_back(arg_uncapped_flag);
     }
     av.push_back(nullptr);
 
