@@ -5,6 +5,11 @@
 #include "foreign_presentation_internal.h"
 
 #include <algorithm>
+#if defined(__SWITCH__)
+#include <condition_variable>
+#include <mutex>
+#include <switch.h>
+#endif
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -2179,12 +2184,165 @@ void render_scanline_wide(uint8_t* rgb, int y, uint16_t dispcnt,
 
 }  // namespace
 
+#if defined(__SWITCH__)
+namespace {
+
+struct PpuBandJob {
+    uint8_t* dst = nullptr;
+    int first_y = 0;
+    int end_y = 0;
+    uint16_t dispcnt = 0;
+    const uint8_t* io = nullptr;
+    const uint8_t* vram = nullptr;
+    const uint8_t* oam = nullptr;
+    const uint8_t* pal = nullptr;
+    uint32_t output_width = GbaPpu::kScreenWidth;
+    uint32_t extra_left = 0;
+    uint32_t extra_top = 0;
+    bool wide = false;
+};
+
+class PpuBandWorker {
+public:
+    ~PpuBandWorker() { shutdown(); }
+
+    bool dispatch(const PpuBandJob& job) {
+        if (!ensure_started()) return false;
+        {
+            std::unique_lock<std::mutex> lock(mutex_);
+            done_cv_.wait(lock, [this] { return !pending_ && done_; });
+            job_ = job;
+            pending_ = true;
+            done_ = false;
+        }
+        work_cv_.notify_one();
+
+        std::unique_lock<std::mutex> lock(mutex_);
+        done_cv_.wait(lock, [this] { return done_; });
+        return true;
+    }
+
+private:
+    static void thread_entry(void* arg) {
+        static_cast<PpuBandWorker*>(arg)->run();
+    }
+
+    bool ensure_started() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (started_) return true;
+        stop_ = false;
+        done_ = true;
+        const Result rc = threadCreate(&thread_, thread_entry, this, nullptr,
+                                       0x40000, 0x2C, 2);
+        if (R_FAILED(rc)) return false;
+        const Result start_rc = threadStart(&thread_);
+        if (R_FAILED(start_rc)) {
+            threadClose(&thread_);
+            return false;
+        }
+        started_ = true;
+        return true;
+    }
+
+    void shutdown() {
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (!started_) return;
+            stop_ = true;
+        }
+        work_cv_.notify_one();
+        threadWaitForExit(&thread_);
+        threadClose(&thread_);
+        started_ = false;
+    }
+
+    void run() {
+        for (;;) {
+            PpuBandJob job;
+            {
+                std::unique_lock<std::mutex> lock(mutex_);
+                work_cv_.wait(lock, [this] { return pending_ || stop_; });
+                if (stop_) return;
+                job = job_;
+                pending_ = false;
+            }
+
+            if (job.wide) {
+                for (int y = job.first_y; y < job.end_y; ++y) {
+                    render_scanline_wide(job.dst, y, job.dispcnt, job.io,
+                                         job.vram, job.oam, job.pal,
+                                         job.output_width, job.extra_left,
+                                         job.extra_top, nullptr);
+                }
+            } else {
+                for (int y = job.first_y; y < job.end_y; ++y) {
+                    render_scanline_internal(
+                        job.dst, static_cast<uint32_t>(y), job.dispcnt,
+                        job.io, job.vram, job.oam, job.pal,
+                        GbaPpu::kScreenWidth, GbaPpu::kScreenHeight);
+                }
+            }
+
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                done_ = true;
+            }
+            done_cv_.notify_one();
+        }
+    }
+
+    Thread thread_{};
+    std::mutex mutex_;
+    std::condition_variable work_cv_;
+    std::condition_variable done_cv_;
+    PpuBandJob job_{};
+    bool started_ = false;
+    bool stop_ = false;
+    bool pending_ = false;
+    bool done_ = true;
+};
+
+PpuBandWorker g_ppu_band_worker;
+
+}  // namespace
+#endif
+
 void GbaPpu::render(uint8_t* rgb,
                     uint16_t dispcnt,
                     const uint8_t* io,
                     const uint8_t* vram,
                     const uint8_t* oam,
                     const uint8_t* pal) const {
+#if defined(__SWITCH__)
+    PpuBandJob job;
+    job.dst = rgb;
+    job.dispcnt = dispcnt;
+    job.io = io;
+    job.vram = vram;
+    job.oam = oam;
+    job.pal = pal;
+    job.wide = view_expanded();
+    if (!view_expanded()) {
+        job.first_y = 0;
+        job.end_y = static_cast<int>(kScreenHeight);
+        if (g_ppu_band_worker.dispatch(job)) return;
+        for (uint32_t y = 0; y < kScreenHeight; ++y) {
+            render_scanline_internal(rgb, y, dispcnt, io, vram, oam, pal,
+                                     kScreenWidth, kScreenHeight);
+        }
+        return;
+    }
+    const uint32_t ow = render_width();
+    job.first_y = -static_cast<int>(extra_top_);
+    job.end_y = static_cast<int>(kScreenHeight + extra_bottom_);
+    job.output_width = ow;
+    job.extra_left = extra_left_;
+    job.extra_top = extra_top_;
+    if (g_ppu_band_worker.dispatch(job)) return;
+    for (int y = job.first_y; y < job.end_y; ++y) {
+        render_scanline_wide(rgb, y, dispcnt, io, vram, oam, pal, ow, extra_left_, extra_top_);
+    }
+#else
     if (!view_expanded()) {
         // Faithful path — literally unchanged from before view expansion existed.
         for (uint32_t y = 0; y < kScreenHeight; ++y) {
@@ -2197,6 +2355,7 @@ void GbaPpu::render(uint8_t* rgb,
     for (int y = -static_cast<int>(extra_top_); y < static_cast<int>(kScreenHeight + extra_bottom_); ++y) {
         render_scanline_wide(rgb, y, dispcnt, io, vram, oam, pal, ow, extra_left_, extra_top_);
     }
+#endif
 }
 
 #if 0

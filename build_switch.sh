@@ -14,5 +14,8 @@ cmake .. \
   -DCMAKE_CXX_FLAGS_RELEASE="-O3 -mcpu=cortex-a57+crypto -mtune=cortex-a57" \
   -DGBARECOMP_SCANLINE_IMPLEMENTATION=HLE
 
+if [ -f ../switch/host_window.h ] && [ -d ../gbarecomp/src/runtime ]; then
+    cp -f ../switch/host_window.h ../gbarecomp/src/runtime/host_window.h
+fi
+
 make -j$(nproc)
-[ -f switch/host_window.h ] && [ -d gbarecomp/src/runtime ] && cp -f switch/host_window.h gbarecomp/src/runtime/host_window.h
