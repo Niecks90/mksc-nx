@@ -1955,8 +1955,8 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
             cfg.channels    = 1;
             cfg.source_rate = 65536.0;                 // engine's standardized GBA mixer rate
             cfg.host_rate   = static_cast<double>(got.freq);
-            cfg.target_ms   = 60.0;                     // steady cushion (matches NES)
-            cfg.preroll_ms  = 250.0;                    // boot pre-roll: hide the cold-start
+            cfg.target_ms   = 100.0;                    // absorb Switch frame-time jitter
+            cfg.preroll_ms   = 300.0;                   // boot pre-roll: hide cold-start
                                                         // recomp warm-up hitch (drains to target)
             if (rab_init(&b->bridge, &cfg) == 0) b->bridge_ready = true;
             SDL_PauseAudioDevice(b->audio_dev, 0);      // start the callback
@@ -2428,6 +2428,9 @@ void HostWindow::present(const uint8_t* rgb888, unsigned sampled_w, unsigned sam
             std::snprintf(buf, sizeof(buf), "%s — %.1f fps", b->title.c_str(),
                           b->fps_presents * 1000.0 / span);
             SDL_SetWindowTitle(b->window, buf);
+            std::fprintf(stderr, "[mksc-fps] %.1f\n",
+                         b->fps_presents * 1000.0 / span);
+            std::fflush(stderr);
             b->fps_window_start = now;
             b->fps_presents = 0;
         }
@@ -3314,4 +3317,3 @@ bool HostWindow::saved_audio_enhanced(bool& out) const {
 }  // namespace gbarecomp
 
 #endif  // GBARECOMP_HAVE_SDL2
-
