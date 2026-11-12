@@ -122,13 +122,12 @@ void GbaPpu::serialize(gbarecomp::debug::SnapshotWriter& w) const {
 }
 
 #if defined(__SWITCH__)
-static const void* g_switch_complete_frame_owner = nullptr;
-static void switch_quiesce_scanlines(const void* owner);
+static void switch_quiesce_scanlines();
 #endif
 
 void GbaPpu::deserialize(gbarecomp::debug::SnapshotReader& r) {
 #if defined(__SWITCH__)
-    switch_quiesce_scanlines(this);
+    switch_quiesce_scanlines();
 #endif
     if (high_resolution_) high_resolution_->invalidate();
     // Foreign presentation is intentionally not save-state data.  A selected
@@ -184,7 +183,7 @@ void GbaPpu::deserialize(gbarecomp::debug::SnapshotReader& r) {
 
 void GbaPpu::reset() {
 #if defined(__SWITCH__)
-    switch_quiesce_scanlines(this);
+    switch_quiesce_scanlines();
 #endif
     if (high_resolution_) high_resolution_->invalidate();
     foreign_presentation_internal::clear();
@@ -210,7 +209,7 @@ void GbaPpu::set_view_margins(uint32_t left, uint32_t right,
     if (next_left != extra_left_ || next_right != extra_right_ ||
         next_top != extra_top_ || next_bottom != extra_bottom_) {
 #if defined(__SWITCH__)
-        switch_quiesce_scanlines(this);
+        switch_quiesce_scanlines();
 #endif
         // A latched frame is laid out at the old stride. Force one fresh
         // render after a live resize rather than interpreting it at the new
@@ -2111,54 +2110,14 @@ void render_scanline_wide(uint8_t* rgb, int y, uint16_t dispcnt,
             int py = source_y & 7;
             int src_ty = vflip ? (tiles_h - 1 - ty) : ty;
             int src_py = vflip ? (7 - py) : py;
-            if (draw_w == sw && !obj_focus_active && !(authored_y && g_ws_authored_margin_layers)) {
-                const int screen_x0 = sx + static_cast<int>(ox);
-                int dx_min = std::max(0, -screen_x0);
-                int dx_max = std::min(draw_w, static_cast<int>(out_w) - screen_x0);
-                if (g_ws_obj_native_clip) {
-                    dx_min = std::max(dx_min, static_cast<int>(ox) - screen_x0);
-                    dx_max = std::min(dx_max, static_cast<int>(ox) + static_cast<int>(kVanW) - screen_x0);
-                }
-                const uint32_t row_tile_stride = obj_1d_mapping ? static_cast<uint32_t>(tiles_w) : 32u;
-                const uint32_t row_base_tile = tile_num + static_cast<uint32_t>(src_ty) * row_tile_stride * (color256 ? 2u : 1u);
-                const bool obj_blend_mode = (obj_mode == 1);
-                for (int dx = dx_min; dx < dx_max; ++dx) {
-                    const uint32_t ux = static_cast<uint32_t>(screen_x0 + dx);
-                    if (!layer_enabled(ux, 4)) continue;
-                    const int tx = dx >> 3;
-                    const int src_tx = hflip ? (tiles_w - 1 - tx) : tx;
-                    const int px = dx & 7;
-                    const int src_px = hflip ? (7 - px) : px;
-                    const uint32_t this_tile = row_base_tile + static_cast<uint32_t>(src_tx) * (color256 ? 2u : 1u);
-                    const uint32_t tile_off = obj_tile_base + this_tile * 32u;
-                    uint8_t pal_index;
-                    if (color256) {
-                        const uint32_t off = tile_off + static_cast<uint32_t>(src_py) * 8u + static_cast<uint32_t>(src_px);
-                        if (off + 1u > 96u * 1024u) continue;
-                        pal_index = vram[off];
-                        if (pal_index == 0) continue;
-                    } else {
-                        const uint32_t off = tile_off + static_cast<uint32_t>(src_py) * 4u + (static_cast<uint32_t>(src_px) >> 1);
-                        if (off + 1u > 96u * 1024u) continue;
-                        const uint8_t b = vram[off];
-                        pal_index = (src_px & 1) ? (b >> 4) : (b & 0x0Fu);
-                        if (pal_index == 0) continue;
-                        pal_index = static_cast<uint8_t>(pal_index | (palette_bank << 4));
-                    }
-                    const uint16_t color = load_u16_le(&obj_pal[pal_index * 2]);
-                    const bool t1 = obj_blend_mode && blend_enabled(ux);
-                    submit(ux, color, key, 4, t1, obj_target2);
-                }
-            } else {
-                for (int dx = 0; dx < draw_w; ++dx) {
-                    const int source_x = nearest_source_pixel(dx, sw, draw_w);
-                    const int tx = source_x >> 3;
-                    int src_tx = hflip ? (tiles_w - 1 - tx) : tx;
-                    const int px = source_x & 7;
-                    int src_px = hflip ? (7 - px) : px;
-                    emit_obj(src_tx * 8 + src_px, src_ty * 8 + src_py,
-                             sx + dx + static_cast<int>(ox));
-                }
+            for (int dx = 0; dx < draw_w; ++dx) {
+                const int source_x = nearest_source_pixel(dx, sw, draw_w);
+                const int tx = source_x >> 3;
+                int src_tx = hflip ? (tiles_w - 1 - tx) : tx;
+                const int px = source_x & 7;
+                int src_px = hflip ? (7 - px) : px;
+                emit_obj(src_tx * 8 + src_px, src_ty * 8 + src_py,
+                         sx + dx + static_cast<int>(ox));
             }
         }
     }
@@ -2460,7 +2419,10 @@ private:
                     const uint8_t* line_io = job.line_io
                         ? job.line_io + size_t(y - job.first_y) * 0x60
                         : job.io;
-                    render_scanline_wide(job.dst, y, job.dispcnt, line_io,
+                    const uint16_t dispcnt = line_io
+                        ? static_cast<uint16_t>(line_io[0] | (line_io[1] << 8))
+                        : job.dispcnt;
+                    render_scanline_wide(job.dst, y, dispcnt, line_io,
                                          job.vram, job.oam, job.pal,
                                          job.output_width, job.extra_left,
                                          job.extra_top, nullptr);
@@ -2470,8 +2432,11 @@ private:
                     const uint8_t* line_io = job.line_io
                         ? job.line_io + size_t(y - job.first_y) * 0x60
                         : job.io;
+                    const uint16_t dispcnt = line_io
+                        ? static_cast<uint16_t>(line_io[0] | (line_io[1] << 8))
+                        : job.dispcnt;
                     render_scanline_internal(
-                        job.dst, static_cast<uint32_t>(y), job.dispcnt,
+                        job.dst, static_cast<uint32_t>(y), dispcnt,
                         line_io, job.vram, job.oam, job.pal,
                         GbaPpu::kScreenWidth, GbaPpu::kScreenHeight);
                 }
@@ -2508,7 +2473,6 @@ PpuBandWorker g_ppu_band_worker;
 struct SwitchScanlineDispatch {
     PpuBandJob frame{};
     std::array<uint8_t, kSwitchBandLines * 0x60> line_io{};
-    const void* owner = nullptr;
     int next_y = 0;
     int band_first_y = 0;
     int band_lines = 0;
@@ -2516,7 +2480,6 @@ struct SwitchScanlineDispatch {
 
     void reset() {
         active = false;
-        owner = nullptr;
         next_y = 0;
         band_first_y = 0;
         band_lines = 0;
@@ -2538,10 +2501,6 @@ struct SwitchScanlineDispatch {
                 reset();
                 return false;
             }
-            if (y == static_cast<int>(GbaPpu::kScreenHeight) - 1 &&
-                next_y == static_cast<int>(GbaPpu::kScreenHeight)) {
-                g_switch_complete_frame_owner = owner;
-            }
             band_first_y = y + 1;
             band_lines = 0;
         }
@@ -2553,11 +2512,9 @@ SwitchScanlineDispatch g_switch_scanlines;
 
 }  // namespace
 
-static void switch_quiesce_scanlines(const void* owner) {
+static void switch_quiesce_scanlines() {
     g_ppu_band_worker.wait_all();
     g_switch_scanlines.reset();
-    if (g_switch_complete_frame_owner == owner)
-        g_switch_complete_frame_owner = nullptr;
 }
 #endif
 
@@ -2884,6 +2841,8 @@ void GbaPpu::render_scanline(uint32_t y,
     // effective reference for this line through its ref + y*delta interface.
     std::array<uint8_t, 0x60> affine_io{};
     std::memcpy(affine_io.data(), io, affine_io.size());
+    affine_io[0] = static_cast<uint8_t>(dispcnt & 0xFFu);
+    affine_io[1] = static_cast<uint8_t>(dispcnt >> 8);
     for (unsigned index = 0; index < affine_line_.size(); ++index) {
         AffineLineState& state = affine_line_[index];
         const uint32_t base = index == 0 ? 0x20u : 0x30u;
@@ -2924,8 +2883,7 @@ void GbaPpu::render_scanline(uint32_t y,
     const auto queue_switch_line = [&]() {
         if (hd || presentation_) return false;
         if (y == 0) {
-            switch_quiesce_scanlines(this);
-            g_switch_scanlines.owner = this;
+            switch_quiesce_scanlines();
             g_switch_scanlines.frame.dst = work_fb_.data();
             g_switch_scanlines.frame.dispcnt = dispcnt;
             g_switch_scanlines.frame.io = io;
@@ -3019,20 +2977,10 @@ void GbaPpu::latch_framebuffer(uint16_t dispcnt,
 void GbaPpu::mark_framebuffer_latched() {
 #if defined(__SWITCH__)
     g_ppu_band_worker.wait_all();
-    const bool can_swap = (g_switch_complete_frame_owner == this);
-    g_switch_complete_frame_owner = nullptr;
     g_switch_scanlines.reset();
 #endif
-    if (rasterization_enabled_) {
-#if defined(__SWITCH__)
-        if (can_swap)
-            work_fb_.swap(latched_fb_);
-        else
-            std::memcpy(latched_fb_.data(), work_fb_.data(), render_bytes());
-#else
+    if (rasterization_enabled_)
         std::memcpy(latched_fb_.data(), work_fb_.data(), render_bytes());
-#endif
-    }
     has_latched_fb_ = true;
     if (high_resolution_) high_resolution_->latch();
     if (presentation_) presentation_->frame_ready();
@@ -3042,7 +2990,7 @@ void GbaPpu::set_rasterization_enabled(bool enabled) {
     rasterization_enabled_ = enabled;
     if (!enabled) {
 #if defined(__SWITCH__)
-        switch_quiesce_scanlines(this);
+        switch_quiesce_scanlines();
 #endif
         std::fill(work_fb_.begin(),work_fb_.end(),0);
         std::fill(latched_fb_.begin(),latched_fb_.end(),0);

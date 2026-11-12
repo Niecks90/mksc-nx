@@ -27,6 +27,7 @@ int (*g_previous_affine_filter_provider)(int, int) = nullptr;
 const gba::WsMarginObjPixel* (*g_previous_margin_objects)(int,int*,int*) = nullptr;
 
 std::atomic<std::uint64_t> g_reset_gen{1};
+std::mutex g_view_mutex;
 struct ThreadViewCache {
     const gba::GbaBus* bus = nullptr;
     unsigned long long vblank = ~0ull;
@@ -35,6 +36,7 @@ struct ThreadViewCache {
     bool race = false;
     bool battle = false;
 };
+ThreadViewCache g_shared_view_cache;
 thread_local ThreadViewCache t_view_cache;
 
 struct HudRect {
@@ -150,16 +152,21 @@ bool compute_race_layout(const gba::GbaBus* bus, bool& out_battle) {
 bool race_layout(const gba::GbaBus* bus) {
     // The providers below are hot (the BG remapper runs per output pixel).
     // Scene identity cannot change inside one emulated frame, so inspect the
-    // game-owned tilemap only once per VBlank per thread rather than per pixel.
+    // game-owned tilemap only once per VBlank per frame.
     const std::uint64_t gen = g_reset_gen.load(std::memory_order_acquire);
     ThreadViewCache& c = t_view_cache;
     if (c.bus != bus || c.vblank != g_runtime_vblank_starts ||
         c.epoch != g_runtime_state_epoch || c.reset_gen != gen) {
-        c.bus = bus;
-        c.vblank = g_runtime_vblank_starts;
-        c.epoch = g_runtime_state_epoch;
-        c.reset_gen = gen;
-        c.race = compute_race_layout(bus, c.battle);
+        std::lock_guard<std::mutex> lock(g_view_mutex);
+        if (g_shared_view_cache.bus != bus || g_shared_view_cache.vblank != g_runtime_vblank_starts ||
+            g_shared_view_cache.epoch != g_runtime_state_epoch || g_shared_view_cache.reset_gen != gen) {
+            g_shared_view_cache.bus = bus;
+            g_shared_view_cache.vblank = g_runtime_vblank_starts;
+            g_shared_view_cache.epoch = g_runtime_state_epoch;
+            g_shared_view_cache.reset_gen = gen;
+            g_shared_view_cache.race = compute_race_layout(bus, g_shared_view_cache.battle);
+        }
+        c = g_shared_view_cache;
     }
     return c.race;
 }
@@ -396,6 +403,10 @@ void install_extended_view(std::uint32_t, std::uint32_t) {
 
 void reset_extended_view() {
     g_reset_gen.fetch_add(1, std::memory_order_release);
+    {
+        std::lock_guard<std::mutex> lock(g_view_mutex);
+        g_shared_view_cache = {};
+    }
     t_view_cache = {};
     reset_margin_objects();
 }
