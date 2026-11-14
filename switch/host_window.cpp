@@ -458,8 +458,7 @@ struct Backend {
         SDL_SCANCODE_1, SDL_SCANCODE_2
     };                                  // Rewind, Fast-forward
     int          assist_pad[2] = {
-        assist_pad_axis(SDL_CONTROLLER_AXIS_TRIGGERLEFT, true),
-        assist_pad_axis(SDL_CONTROLLER_AXIS_TRIGGERRIGHT, true),
+        0, 0
     };
     bool         assist_tools = true;
     int          assist_fast_forward_multiplier = 4;
@@ -3218,8 +3217,8 @@ HostWindow::Events HostWindow::pump() {
             int bit;
             SDL_GameControllerButton button;
         } pad_map[] = {
-            {0, SDL_CONTROLLER_BUTTON_A},
-            {1, SDL_CONTROLLER_BUTTON_B},
+            {0, SDL_CONTROLLER_BUTTON_B},
+            {1, SDL_CONTROLLER_BUTTON_A},
             {2, SDL_CONTROLLER_BUTTON_BACK},
             {3, SDL_CONTROLLER_BUTTON_START},
             {4, SDL_CONTROLLER_BUTTON_DPAD_RIGHT},
@@ -3233,6 +3232,12 @@ HostWindow::Events HostWindow::pump() {
             if (SDL_GameControllerGetButton(b->controller, binding.button))
                 keys &= static_cast<uint16_t>(~(1u << binding.bit));
         }
+
+        // Map rear triggers (ZL / ZR) to L and R (ZL = L, ZR = R)
+        if (SDL_GameControllerGetAxis(b->controller, SDL_CONTROLLER_AXIS_TRIGGERLEFT) > 8000)
+            keys &= static_cast<uint16_t>(~(1u << 9)); // ZL = L
+        if (SDL_GameControllerGetAxis(b->controller, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > 8000)
+            keys &= static_cast<uint16_t>(~(1u << 8)); // ZR = R
     }
     if (b->touch_controls) {
         const uint16_t touch_buttons = active_touch_buttons(b);
@@ -3311,23 +3316,8 @@ ev.keyinput = keys;
     // Turbo is level-triggered: held = uncap the frame limiter. The historical
     // [KeyMap] Turbo binding (default Tab) remains as a compatibility shortcut;
     // the launcher-editable Assist binding is additive.
+    // Fast-forward disabled for now
     ev.fast_forward = false;
-    {
-        const HotkeyBind& hb = b->hotkeys[HK_TURBO];
-        if (hb.key != SDLK_UNKNOWN) {
-            SDL_Scancode sc = SDL_GetScancodeFromKey(hb.key);
-            if (sc != SDL_SCANCODE_UNKNOWN && ks[sc] &&
-                hotkey_mods_ok(hb, SDL_GetModState()))
-                ev.fast_forward = true;
-        }
-    }
-    // Always report the configured physical controls. The runtime owns the
-    // Assist gate, which lets its in-game menu enable or disable these actions
-    // immediately without HostWindow carrying a stale copy of that live state.
-    const SDL_Scancode fast_sc = b->assist_key[1];
-    if ((fast_sc > SDL_SCANCODE_UNKNOWN && fast_sc < SDL_NUM_SCANCODES &&
-         ks[fast_sc]) || assist_pad_down(b->controller, b->assist_pad[1]))
-        ev.fast_forward = true;
 
     const SDL_Scancode rewind_sc = b->assist_key[0];
     const bool rewind_down =
