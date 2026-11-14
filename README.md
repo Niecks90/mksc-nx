@@ -1,13 +1,19 @@
 # Mario Kart: Super Circuit Recomp (Switch Port)
 
 > **Nintendo Switch Homebrew Exclusive**  
-> Ported and optimized for the Nintendo Switch by **Niecks90** (v0.2.0).
+> Ported and optimized for the Nintendo Switch by **Niecks90** (v0.2.1).
 
 Static recompilation of **Mario Kart: Super Circuit** running natively on the Nintendo Switch at a smooth **60 FPS**, featuring multi-threaded PPU rasterization, Adaptive Widescreen (16:9), optional 60 FPS track rendering, and configurable internal resolution.
 
 The game ROM and Nintendo GBA BIOS are **not included**. You must provide your own legally obtained dumps.
 
 ---
+
+## What's New in v0.2.1
+
+- **Controller Mapping Fixes**: Swapped A and B buttons to match the native Nintendo layout (A = Accelerate, B = Brake/Reverse).
+- **Rear Triggers Support (ZL / ZR)**: Rear triggers ZL and ZR now perform the same functions as L and R (Hop / Drift / Use Item).
+- **Removed Fast-Forward on ZR**: Removed the unwanted turbo / pseudo fast-forward mode triggered by ZR.
 
 ## What's New in v0.2.0
 
@@ -46,7 +52,7 @@ Create a directory on your SD card at `sdmc:/switch/mksc_nx/` and place your fil
 | **D-Pad / Left Stick** | Steer / Navigation |
 | **A** | Accelerate |
 | **B** | Brake / Reverse |
-| **L / R** | Hop / Drift / Use Item |
+| **L / R / ZL / ZR** | Hop / Drift / Use Item |
 | **+ (Start)** | Pause / Menu |
 | **- (Select)** | Change Camera / View |
 | **+ and - Held Together** | **Exit the game cleanly to Homebrew Menu** |
