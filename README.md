@@ -35,7 +35,7 @@ Create a directory on your SD card at `sdmc:/switch/mksc_nx/` and place your fil
 /switch/mksc_nx/
  ├── mksc_nx.nro       (The game executable)
  ├── rom.gba           (Your Mario Kart: Super Circuit USA ROM - SHA1: 9d327c030c3e2d9007990518594f70c3340ac56f)
- ├── gba_bios.bin      (Your retail GBA BIOS - optional if HLE BIOS is used)
+ ├── gba_bios.bin      (Your retail GBA BIOS - mandatory)
  ├── config.txt        (Configuration file, auto-created on first launch)
  └── save/             (Auto-created directory for game saves)
 ```
