@@ -261,3 +261,49 @@ void web_notify_storage_write(WebStorageWrite kind, bool ok);
 #endif
 
 }  // namespace gbarecomp
+
+#if defined(__SWITCH__)
+extern "C" {
+
+enum MkscWidescreenMode {
+    MKSC_WS_CLASSIC = 0,
+    MKSC_WS_WIDE = 1
+};
+
+enum MkscVideoFilter {
+    MKSC_FILTER_NEAREST = 0,
+    MKSC_FILTER_BILINEAR = 1,
+    MKSC_FILTER_SHARP4X = 2,
+    MKSC_FILTER_LCD_GRID = 3
+};
+
+enum MkscColorMode {
+    MKSC_COLOR_RAW = 0,
+    MKSC_COLOR_BACKLIT = 1,
+    MKSC_COLOR_FRONTLIT = 2,
+    MKSC_COLOR_UNLIT = 3,
+    MKSC_COLOR_CLASSIC = 4
+};
+
+struct MkscQolConfig {
+    int widescreen;        // MkscWidescreenMode (default MKSC_WS_WIDE)
+    int video_filter;      // MkscVideoFilter (default MKSC_FILTER_NEAREST)
+    int color_mode;        // MkscColorMode (default MKSC_COLOR_RAW)
+    int fps60;             // 0 or 1 (60 FPS Track Interpolation)
+    int high_res_affine;   // 0 or 1 (High-Res Affine at boot)
+    int show_fps;          // 0 or 1
+    int vsync;             // 0 or 1 (default 0)
+    int uncapped;          // 0 or 1
+    int cpu_boost;         // 0=Normal, 1=FastLoad, 2=Type2
+    int audio_enabled;     // 0 or 1 (default 1)
+    int reset_requested;   // set to 1 to trigger game reset
+    char config_path[256];
+    char savestate_dir[256];
+    void (*save_config_fn)(void);
+    void (*apply_mods_fn)(void);
+};
+
+extern MkscQolConfig g_mksc_qol;
+
+}  // extern "C"
+#endif

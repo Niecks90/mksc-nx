@@ -1,13 +1,25 @@
-# Mario Kart: Super Circuit Recomp (Switch Port)
+# Mario Kart: Super Circuit NX
 
 > **Nintendo Switch Homebrew Exclusive**  
-> Ported and optimized for the Nintendo Switch by **Niecks90** (v0.2.1).
+> Ported and optimized for the Nintendo Switch by **Niecks90** (v0.3.0).
 
-Static recompilation of **Mario Kart: Super Circuit** running natively on the Nintendo Switch at a smooth **60 FPS**, featuring multi-threaded PPU rasterization, Adaptive Widescreen (16:9), optional 60 FPS track rendering, and configurable internal resolution.
+Static recompilation of **Mario Kart: Super Circuit** running natively on the Nintendo Switch at a smooth **60 FPS**, featuring multi-threaded PPU rasterization, an in-game QoL Overlay Menu, Save States, Adaptive Widescreen (16:9), optional 60 FPS track rendering, and configurable video filters & color correction.
 
 The game ROM and Nintendo GBA BIOS are **not included**. You must provide your own legally obtained dumps.
 
 ---
+
+## What's New in v0.3.0
+
+- **In-Game QoL Overlay Menu**: Hold **`-` (Minus)** for ~450 ms during gameplay to open the Quick Menu (short tap `< 450 ms` still triggers GBA `SELECT` cleanly). Emulation and audio pause automatically while open.
+- **Save States (Slots 1–5)**: Save and load up to 5 slots stored in `sdmc:/switch/mksc_nx/savestates/slot_N.state`, complete with timestamps, sizes, and on-screen toast notifications.
+- **Live Display & Video Filters**:
+  - **Aspect / Widescreen**: Switch live between `16:9 Wide (284x160)` and `Classic GBA (3:2)` without rebooting.
+  - **Video Filter**: Choose between `Nearest (Sharp)`, `Bilinear (Smooth)`, `Sharp 4x`, and `GBA LCD Grid`.
+  - **GBA Color Correction**: Toggle between `Off (Raw)` and authentic GBA LCD color profiles (`Backlit`, `Frontlit`, `Unlit`, `Classic`).
+- **Runtime Enhancements & System Controls**: Toggle **60 FPS Track Interpolation**, **FPS / Frame-time HUD**, **VSync**, **Audio**, and **CPU Boost** (`Normal`, `FastLoad`, `Type2`), or **Resume**, **Reset Game**, and **Exit to Homebrew Menu** (flushing SRAM saves cleanly).
+- **Config Persistence**: All QoL settings persist cleanly to `sdmc:/switch/mksc_nx/config.txt`.
+- **Application Rename**: Finalized project name, NACP metadata, and SDL2 window title to **Mario Kart: Super Circuit NX**.
 
 ## What's New in v0.2.1
 
@@ -37,7 +49,8 @@ Create a directory on your SD card at `sdmc:/switch/mksc_nx/` and place your fil
  ├── rom.gba           (Your Mario Kart: Super Circuit USA ROM - SHA1: 9d327c030c3e2d9007990518594f70c3340ac56f)
  ├── gba_bios.bin      (Your retail GBA BIOS - mandatory)
  ├── config.txt        (Configuration file, auto-created on first launch)
- └── save/             (Auto-created directory for game saves)
+ ├── save/             (Auto-created directory for game saves)
+ └── savestates/       (Auto-created directory for save states slot_1..5.state)
 ```
 
 > [!IMPORTANT]
@@ -54,7 +67,8 @@ Create a directory on your SD card at `sdmc:/switch/mksc_nx/` and place your fil
 | **B** | Brake / Reverse |
 | **L / R / ZL / ZR** | Hop / Drift / Use Item |
 | **+ (Start)** | Pause / Menu |
-| **- (Select)** | Change Camera / View |
+| **- (Tap)** | Change Camera / View (GBA Select) |
+| **- (Hold ~450 ms)** | **Open / Close In-Game QoL Quick Menu** |
 | **+ and - Held Together** | **Exit the game cleanly to Homebrew Menu** |
 
 ---
@@ -66,11 +80,13 @@ On first launch, `config.txt` is automatically created in `sdmc:/switch/mksc_nx/
 ```ini
 widescreen = 1
 fps60 = 1
+video_filter = nearest
+color_mode = raw
+linear_filter = 0
+high_res_affine = 0
 vsync = 0
 uncapped = 0
 cpu_boost = 0
-high_res_affine = 0
-linear_filter = 0
 show_fps = 0
 audio = 1
 ```
@@ -93,8 +109,10 @@ audio = 1
 - **`uncapped`** (`0` or `1`):
   - `0` *(Default)*: Paced to 59.7275 Hz.
   - `1`: Disables frame pacing for benchmarking and profiling.
+- **`video_filter`** (`nearest`, `bilinear`, `sharp4x`, `lcd`): Selects pixel scaling filter (`nearest` = sharp pixels, `bilinear` = smooth, `sharp4x` = 4× integer prescale + linear, `lcd` = GBA LCD grid overlay).
+- **`color_mode`** (`raw`, `backlit`, `frontlit`, `unlit`, `classic`): Selects GBA LCD color correction (`raw` = off / vivid RGB).
 - **`high_res_affine`** (`0` or `1`): Enables higher internal resolution for the Mode 7 perspective track.
-- **`linear_filter`** (`0` or `1`): Enables bilinear texture filtering.
+- **`linear_filter`** (`0` or `1`): Legacy alias for `video_filter = bilinear` when `video_filter` is omitted.
 - **`show_fps`** (`0` or `1`): Displays an on-screen FPS counter in the upper-left corner.
 - **`audio`** (`1` or `0`): Enables or disables sound output.
 

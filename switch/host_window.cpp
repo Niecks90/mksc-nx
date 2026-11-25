@@ -5,6 +5,7 @@
 #if defined(__SWITCH__)
 #include <arm_neon.h>
 #include <switch.h>
+#include <sys/stat.h>
 #endif
 #include <stdexcept>
 
@@ -17,6 +18,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <fstream>
 #include <memory>
 #include <string>
@@ -28,6 +30,28 @@
 #include "touch_input.h"
 #if defined(GBARECOMP_RUNTIME_UI)
 #include "recomp_runtime_ui.h"
+#endif
+
+#if defined(__SWITCH__)
+extern "C" {
+MkscQolConfig g_mksc_qol = {
+    MKSC_WS_WIDE,
+    MKSC_FILTER_NEAREST,
+    MKSC_COLOR_RAW,
+    1,   // fps60
+    0,   // high_res_affine
+    0,   // show_fps
+    0,   // vsync (default off for Switch audio-paced 60 FPS)
+    0,   // uncapped
+    0,   // cpu_boost
+    1,   // audio_enabled
+    0,   // reset_requested
+    "sdmc:/switch/mksc_nx/config.txt",
+    "sdmc:/switch/mksc_nx/savestates",
+    nullptr,
+    nullptr
+};
+}
 #endif
 
 #if defined(GBARECOMP_HAVE_SDL2)
@@ -476,6 +500,40 @@ struct Backend {
     double       fps_value = 0.0;
     // MC-WS-002: opt-in per-present timing/scanout ring (see above).
     PresentCadence cadence;
+#if defined(__SWITCH__)
+    bool         qol_open = false;
+    bool         qol_minus_down = false;
+    bool         qol_minus_triggered = false;
+    Uint32       qol_minus_down_ms = 0;
+    int          qol_select_pulse_frames = 0;
+    bool         qol_confirm_held = false;
+    bool         qol_back_held = false;
+    bool         qol_nav_up_held = false;
+    bool         qol_nav_down_held = false;
+    bool         qol_nav_left_held = false;
+    bool         qol_nav_right_held = false;
+    Uint32       qol_nav_repeat_at = 0;
+    int          qol_page = 0;          // 0 = Main, 1 = Save States
+    int          qol_cursor = 0;
+    int          qol_slot_mode = 0;     // 0 = Save, 1 = Load
+    int          qol_pending_save_slot = 0;
+    int          qol_pending_load_slot = 0;
+    int          qol_applied_color = -1;
+    int          qol_applied_filter = -1;
+    int          qol_applied_vsync = -1;
+    int          qol_applied_boost = -1;
+    int          qol_applied_audio = -1;
+    int          qol_applied_fps60 = -1;
+    bool         qol_slot_exists[5] = {};
+    char         qol_slot_time[5][40] = {};
+    char         qol_toast[64] = {};
+    Uint32       qol_toast_until = 0;
+    Uint64       qol_last_present_ticks = 0;
+    double       qol_frame_ms = 16.67;
+    SDL_Texture* lcd_grid_texture = nullptr;
+    int          lcd_grid_w = 0;
+    int          lcd_grid_h = 0;
+#endif
 };
 
 void destroy_sharp_texture(Backend* b) {
@@ -535,6 +593,250 @@ bool ensure_sharp_texture(Backend* b, int factor) {
 #endif
     return true;
 }
+
+#if defined(__SWITCH__)
+static void destroy_lcd_grid_texture(Backend* b) {
+    if (!b) return;
+    if (b->lcd_grid_texture) SDL_DestroyTexture(b->lcd_grid_texture);
+    b->lcd_grid_texture = nullptr;
+    b->lcd_grid_w = 0;
+    b->lcd_grid_h = 0;
+}
+
+static bool ensure_sharp_texture_dims(Backend* b, int width, int height) {
+    if (!b || !b->renderer || width <= 0 || height <= 0) return false;
+    if (b->sharp_texture &&
+        b->sharp_texture_w == width &&
+        b->sharp_texture_h == height) {
+        return true;
+    }
+    SDL_RendererInfo info{};
+    if (SDL_GetRendererInfo(b->renderer, &info) == 0 &&
+        ((info.max_texture_width > 0 && width > info.max_texture_width) ||
+         (info.max_texture_height > 0 && height > info.max_texture_height))) {
+        destroy_sharp_texture(b);
+        return false;
+    }
+    destroy_sharp_texture(b);
+    b->sharp_texture = SDL_CreateTexture(
+        b->renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET,
+        width, height);
+    if (!b->sharp_texture) return false;
+    b->sharp_texture_w = width;
+    b->sharp_texture_h = height;
+    b->sharp_target_failed = false;
+    SDL_SetTextureBlendMode(b->sharp_texture, SDL_BLENDMODE_NONE);
+#if SDL_VERSION_ATLEAST(2, 0, 12)
+    SDL_SetTextureScaleMode(b->sharp_texture, SDL_ScaleModeLinear);
+#endif
+    return true;
+}
+
+static bool ensure_lcd_grid_texture(Backend* b, int src_w, int src_h) {
+    if (!b || !b->renderer || src_w <= 0 || src_h <= 0) return false;
+    const int gw = src_w * 4;
+    const int gh = src_h * 4;
+    if (b->lcd_grid_texture && b->lcd_grid_w == gw && b->lcd_grid_h == gh) {
+        return true;
+    }
+    destroy_lcd_grid_texture(b);
+    SDL_Texture* tex = SDL_CreateTexture(
+        b->renderer, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STATIC, gw, gh);
+    if (!tex) return false;
+    std::vector<uint32_t> pixels(static_cast<std::size_t>(gw) * static_cast<std::size_t>(gh), 0u);
+    // ABGR8888 little-endian: (A << 24) | 0x000000 -> subtle GBA LCD pixel grid
+    constexpr uint32_t kGridDark = (72u << 24);
+    for (int y = 0; y < gh; ++y) {
+        const bool y_line = (y % 4) == 3;
+        uint32_t* row = pixels.data() + static_cast<std::size_t>(y) * gw;
+        for (int x = 0; x < gw; ++x) {
+            if (y_line || (x % 4) == 3) row[x] = kGridDark;
+        }
+    }
+    SDL_UpdateTexture(tex, nullptr, pixels.data(), gw * 4);
+    SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_BLEND);
+#if SDL_VERSION_ATLEAST(2, 0, 12)
+    SDL_SetTextureScaleMode(tex, SDL_ScaleModeNearest);
+#endif
+    b->lcd_grid_texture = tex;
+    b->lcd_grid_w = gw;
+    b->lcd_grid_h = gh;
+    return true;
+}
+
+static void qol_set_toast(Backend* b, const char* msg) {
+    if (!b || !msg) return;
+    std::snprintf(b->qol_toast, sizeof(b->qol_toast), "%s", msg);
+    b->qol_toast_until = SDL_GetTicks() + 2000u;
+}
+
+static const char* qol_savestate_dir() {
+    return g_mksc_qol.savestate_dir[0] != '\0'
+        ? g_mksc_qol.savestate_dir
+        : "sdmc:/switch/mksc_nx/savestates";
+}
+
+static void qol_ensure_savestate_dir() {
+    mkdir("sdmc:/switch", 0777);
+    mkdir("sdmc:/switch/mksc_nx", 0777);
+    mkdir(qol_savestate_dir(), 0777);
+}
+
+static void qol_slot_paths(int slot, std::string& final_path, std::string& runtime_path) {
+    const std::string dir = qol_savestate_dir();
+    final_path = dir + "/slot_" + std::to_string(slot) + ".state";
+    runtime_path = dir + "/state" + std::to_string(slot);
+}
+
+static void qol_refresh_slots(Backend* b) {
+    if (!b) return;
+    for (int i = 0; i < 5; ++i) {
+        std::string final_p, runtime_p;
+        qol_slot_paths(i + 1, final_p, runtime_p);
+        struct stat st{};
+        if (stat(final_p.c_str(), &st) == 0 && st.st_size > 0) {
+            b->qol_slot_exists[i] = true;
+            std::tm tm_buf{};
+            localtime_r(&st.st_mtime, &tm_buf);
+            const unsigned long kb = static_cast<unsigned long>((st.st_size + 1023) / 1024);
+            std::snprintf(b->qol_slot_time[i], sizeof(b->qol_slot_time[i]),
+                          "Saved %02d-%02d %02d:%02d %luK",
+                          tm_buf.tm_mon + 1, tm_buf.tm_mday,
+                          tm_buf.tm_hour, tm_buf.tm_min, kb);
+        } else {
+            b->qol_slot_exists[i] = false;
+            std::snprintf(b->qol_slot_time[i], sizeof(b->qol_slot_time[i]), "Empty");
+        }
+    }
+}
+
+static bool qol_copy_file(const char* src, const char* dst) {
+    std::ifstream in(src, std::ios::binary);
+    if (!in.is_open()) return false;
+    std::ofstream out(dst, std::ios::binary | std::ios::trunc);
+    if (!out.is_open()) return false;
+    char buf[16384];
+    while (in.good()) {
+        in.read(buf, sizeof(buf));
+        const std::streamsize got = in.gcount();
+        if (got > 0) out.write(buf, got);
+    }
+    return !out.fail();
+}
+
+static void qol_finalize_pending_savestate_ops(Backend* b) {
+    if (!b) return;
+    if (b->qol_pending_save_slot > 0) {
+        const int slot = b->qol_pending_save_slot;
+        b->qol_pending_save_slot = 0;
+        std::string final_p, runtime_p;
+        qol_slot_paths(slot, final_p, runtime_p);
+        struct stat st{};
+        if (stat(runtime_p.c_str(), &st) == 0 && st.st_size > 0) {
+            std::remove(final_p.c_str());
+            bool ok = (std::rename(runtime_p.c_str(), final_p.c_str()) == 0);
+            if (!ok) {
+                ok = qol_copy_file(runtime_p.c_str(), final_p.c_str());
+                std::remove(runtime_p.c_str());
+            }
+            if (ok) {
+                qol_refresh_slots(b);
+                char msg[48];
+                std::snprintf(msg, sizeof(msg), "State Saved to Slot %d", slot);
+                qol_set_toast(b, msg);
+            } else {
+                qol_set_toast(b, "Save Failed");
+            }
+        } else {
+            qol_set_toast(b, "Save Failed");
+        }
+    }
+    if (b->qol_pending_load_slot > 0) {
+        const int slot = b->qol_pending_load_slot;
+        b->qol_pending_load_slot = 0;
+        std::string final_p, runtime_p;
+        qol_slot_paths(slot, final_p, runtime_p);
+        std::remove(runtime_p.c_str());
+        char msg[48];
+        std::snprintf(msg, sizeof(msg), "State Loaded (Slot %d)", slot);
+        qol_set_toast(b, msg);
+    }
+}
+
+static void qol_apply_color_mode(Backend* b) {
+    if (!b) return;
+    runtime::ColorSettings s;
+    switch (g_mksc_qol.color_mode) {
+        case MKSC_COLOR_BACKLIT:  s.screen = runtime::ScreenKind::Backlit; break;
+        case MKSC_COLOR_FRONTLIT: s.screen = runtime::ScreenKind::Frontlit; break;
+        case MKSC_COLOR_UNLIT:    s.screen = runtime::ScreenKind::Unlit; break;
+        case MKSC_COLOR_CLASSIC:  s.screen = runtime::ScreenKind::Classic; break;
+        default:                  s.screen = runtime::ScreenKind::Raw; break;
+    }
+    b->color_lut = std::make_unique<runtime::ColorLut>(s);
+    if (!b->color_lut->is_passthrough()) {
+        b->graded_fb.resize(static_cast<std::size_t>(b->base_w) * b->base_h * 3);
+    }
+    b->qol_applied_color = g_mksc_qol.color_mode;
+}
+
+static void qol_apply_video_filter(Backend* b) {
+    if (!b || !b->texture) return;
+    const int f = g_mksc_qol.video_filter;
+    b->linear_filter = (f == MKSC_FILTER_BILINEAR);
+    b->sharp_filter = (f == MKSC_FILTER_SHARP4X || f == MKSC_FILTER_LCD_GRID);
+    if (!b->sharp_filter) destroy_sharp_texture(b);
+    if (f != MKSC_FILTER_LCD_GRID) destroy_lcd_grid_texture(b);
+#if SDL_VERSION_ATLEAST(2, 0, 12)
+    SDL_SetTextureScaleMode(
+        b->texture,
+        b->linear_filter ? SDL_ScaleModeLinear : SDL_ScaleModeNearest);
+#endif
+    b->qol_applied_filter = f;
+}
+
+static void qol_apply_vsync(Backend* b) {
+    if (!b || !b->renderer) return;
+#if SDL_VERSION_ATLEAST(2, 0, 18)
+    SDL_RenderSetVSync(b->renderer, g_mksc_qol.vsync ? 1 : 0);
+#endif
+    b->qol_applied_vsync = g_mksc_qol.vsync;
+}
+
+static void qol_apply_cpu_boost(Backend* b) {
+    if (!b) return;
+    ApmCpuBoostMode mode = ApmCpuBoostMode_Normal;
+    if (g_mksc_qol.cpu_boost == 1) mode = ApmCpuBoostMode_FastLoad;
+    else if (g_mksc_qol.cpu_boost == 2) mode = ApmCpuBoostMode_Type2;
+    appletSetCpuBoostMode(mode);
+    b->qol_applied_boost = g_mksc_qol.cpu_boost;
+}
+
+static void qol_apply_audio(Backend* b) {
+    if (!b) return;
+    const int want_play = (!b->qol_open && g_mksc_qol.audio_enabled) ? 1 : 0;
+    if (b->audio_dev) SDL_PauseAudioDevice(b->audio_dev, want_play ? 0 : 1);
+    b->qol_applied_audio = want_play;
+}
+
+static void qol_apply_mods(Backend* b) {
+    if (!b) return;
+    if (g_mksc_qol.apply_mods_fn) g_mksc_qol.apply_mods_fn();
+    b->qol_applied_fps60 = g_mksc_qol.fps60;
+}
+
+static void qol_sync_all_settings(Backend* b) {
+    if (!b) return;
+    b->fps_readout = (g_mksc_qol.show_fps != 0);
+    if (b->qol_applied_color != g_mksc_qol.color_mode) qol_apply_color_mode(b);
+    if (b->qol_applied_filter != g_mksc_qol.video_filter) qol_apply_video_filter(b);
+    if (b->qol_applied_vsync != g_mksc_qol.vsync) qol_apply_vsync(b);
+    if (b->qol_applied_boost != g_mksc_qol.cpu_boost) qol_apply_cpu_boost(b);
+    if (b->qol_applied_fps60 != g_mksc_qol.fps60) qol_apply_mods(b);
+    const int want_play = (!b->qol_open && g_mksc_qol.audio_enabled) ? 1 : 0;
+    if (b->qol_applied_audio != want_play) qol_apply_audio(b);
+}
+#endif
 
 void close_game_controller(Backend* b) {
     if (!b || !b->controller) return;
@@ -1293,6 +1595,12 @@ runtime::ColorSettings resolve_color_settings(const char* toml_screen) {
 void gba_audio_callback(void* userdata, Uint8* stream, int len) {
     auto* b = static_cast<Backend*>(userdata);
     int frames = len / static_cast<int>(sizeof(int16_t)); // mono
+#if defined(__SWITCH__)
+    if (!b || !b->bridge_ready || b->qol_open || !g_mksc_qol.audio_enabled) {
+        SDL_memset(stream, 0, len);
+        return;
+    }
+#endif
     if (b && b->bridge_ready) {
         SDL_LockMutex(b->audio_mtx);
         rab_pull(&b->bridge, reinterpret_cast<int16_t*>(stream), frames);
@@ -1429,6 +1737,343 @@ static std::uint8_t fps_glyph(char c, int row) {
 }
 
 #if defined(__SWITCH__)
+// Embedded 5x7 ASCII bitmap font (printable ASCII 0x20..0x7E, 7 rows x 5 bits).
+static const std::uint8_t* qol_glyph_rows(unsigned char ch) {
+    static constexpr std::uint8_t kBlank[7] = {0, 0, 0, 0, 0, 0, 0};
+    static constexpr std::uint8_t kFont[95][7] = {
+        {0x00,0x00,0x00,0x00,0x00,0x00,0x00}, // ' '
+        {0x04,0x04,0x04,0x04,0x04,0x00,0x04}, // '!'
+        {0x0A,0x0A,0x00,0x00,0x00,0x00,0x00}, // '"'
+        {0x0A,0x1F,0x0A,0x0A,0x1F,0x0A,0x00}, // '#'
+        {0x04,0x0F,0x14,0x0E,0x05,0x1E,0x04}, // '$'
+        {0x19,0x1A,0x02,0x04,0x08,0x0B,0x13}, // '%'
+        {0x0C,0x12,0x14,0x08,0x15,0x12,0x0D}, // '&'
+        {0x04,0x04,0x00,0x00,0x00,0x00,0x00}, // '''
+        {0x02,0x04,0x08,0x08,0x08,0x04,0x02}, // '('
+        {0x08,0x04,0x02,0x02,0x02,0x04,0x08}, // ')'
+        {0x00,0x0A,0x04,0x1F,0x04,0x0A,0x00}, // '*'
+        {0x00,0x04,0x04,0x1F,0x04,0x04,0x00}, // '+'
+        {0x00,0x00,0x00,0x00,0x00,0x04,0x08}, // ','
+        {0x00,0x00,0x00,0x1F,0x00,0x00,0x00}, // '-'
+        {0x00,0x00,0x00,0x00,0x00,0x0C,0x0C}, // '.'
+        {0x01,0x02,0x02,0x04,0x08,0x08,0x10}, // '/'
+        {0x0E,0x11,0x13,0x15,0x19,0x11,0x0E}, // '0'
+        {0x04,0x0C,0x04,0x04,0x04,0x04,0x0E}, // '1'
+        {0x0E,0x11,0x01,0x06,0x08,0x10,0x1F}, // '2'
+        {0x1E,0x01,0x01,0x0E,0x01,0x01,0x1E}, // '3'
+        {0x02,0x06,0x0A,0x12,0x1F,0x02,0x02}, // '4'
+        {0x1F,0x10,0x1E,0x01,0x01,0x11,0x0E}, // '5'
+        {0x06,0x08,0x10,0x1E,0x11,0x11,0x0E}, // '6'
+        {0x1F,0x01,0x02,0x04,0x08,0x08,0x08}, // '7'
+        {0x0E,0x11,0x11,0x0E,0x11,0x11,0x0E}, // '8'
+        {0x0E,0x11,0x11,0x0F,0x01,0x02,0x0C}, // '9'
+        {0x00,0x0C,0x0C,0x00,0x0C,0x0C,0x00}, // ':'
+        {0x00,0x04,0x04,0x00,0x04,0x04,0x08}, // ';'
+        {0x02,0x04,0x08,0x10,0x08,0x04,0x02}, // '<'
+        {0x00,0x00,0x1F,0x00,0x1F,0x00,0x00}, // '='
+        {0x08,0x04,0x02,0x01,0x02,0x04,0x08}, // '>'
+        {0x0E,0x11,0x01,0x02,0x04,0x00,0x04}, // '?'
+        {0x0E,0x11,0x17,0x15,0x17,0x10,0x0E}, // '@'
+        {0x0E,0x11,0x11,0x1F,0x11,0x11,0x11}, // 'A'
+        {0x1E,0x11,0x11,0x1E,0x11,0x11,0x1E}, // 'B'
+        {0x0E,0x11,0x10,0x10,0x10,0x11,0x0E}, // 'C'
+        {0x1C,0x12,0x11,0x11,0x11,0x12,0x1C}, // 'D'
+        {0x1F,0x10,0x10,0x1E,0x10,0x10,0x1F}, // 'E'
+        {0x1F,0x10,0x10,0x1E,0x10,0x10,0x10}, // 'F'
+        {0x0E,0x11,0x10,0x17,0x11,0x11,0x0F}, // 'G'
+        {0x11,0x11,0x11,0x1F,0x11,0x11,0x11}, // 'H'
+        {0x0E,0x04,0x04,0x04,0x04,0x04,0x0E}, // 'I'
+        {0x07,0x02,0x02,0x02,0x12,0x12,0x0C}, // 'J'
+        {0x11,0x12,0x14,0x18,0x14,0x12,0x11}, // 'K'
+        {0x10,0x10,0x10,0x10,0x10,0x10,0x1F}, // 'L'
+        {0x11,0x1B,0x15,0x15,0x11,0x11,0x11}, // 'M'
+        {0x11,0x11,0x19,0x15,0x13,0x11,0x11}, // 'N'
+        {0x0E,0x11,0x11,0x11,0x11,0x11,0x0E}, // 'O'
+        {0x1E,0x11,0x11,0x1E,0x10,0x10,0x10}, // 'P'
+        {0x0E,0x11,0x11,0x11,0x15,0x12,0x0D}, // 'Q'
+        {0x1E,0x11,0x11,0x1E,0x14,0x12,0x11}, // 'R'
+        {0x0F,0x10,0x10,0x0E,0x01,0x01,0x1E}, // 'S'
+        {0x1F,0x04,0x04,0x04,0x04,0x04,0x04}, // 'T'
+        {0x11,0x11,0x11,0x11,0x11,0x11,0x0E}, // 'U'
+        {0x11,0x11,0x11,0x11,0x11,0x0A,0x04}, // 'V'
+        {0x11,0x11,0x11,0x15,0x15,0x1B,0x11}, // 'W'
+        {0x11,0x11,0x0A,0x04,0x0A,0x11,0x11}, // 'X'
+        {0x11,0x11,0x0A,0x04,0x04,0x04,0x04}, // 'Y'
+        {0x1F,0x01,0x02,0x04,0x08,0x10,0x1F}, // 'Z'
+        {0x0E,0x08,0x08,0x08,0x08,0x08,0x0E}, // '['
+        {0x10,0x08,0x08,0x04,0x02,0x02,0x01}, // '\'
+        {0x0E,0x02,0x02,0x02,0x02,0x02,0x0E}, // ']'
+        {0x04,0x0A,0x11,0x00,0x00,0x00,0x00}, // '^'
+        {0x00,0x00,0x00,0x00,0x00,0x00,0x1F}, // '_'
+        {0x08,0x04,0x00,0x00,0x00,0x00,0x00}, // '`'
+        {0x00,0x00,0x0E,0x01,0x0F,0x11,0x0F}, // 'a'
+        {0x10,0x10,0x16,0x19,0x11,0x19,0x16}, // 'b'
+        {0x00,0x00,0x0E,0x10,0x10,0x11,0x0E}, // 'c'
+        {0x01,0x01,0x0D,0x13,0x11,0x13,0x0D}, // 'd'
+        {0x00,0x00,0x0E,0x11,0x1F,0x10,0x0E}, // 'e'
+        {0x06,0x09,0x08,0x1E,0x08,0x08,0x08}, // 'f'
+        {0x00,0x00,0x0F,0x11,0x0F,0x01,0x0E}, // 'g'
+        {0x10,0x10,0x16,0x19,0x11,0x11,0x11}, // 'h'
+        {0x04,0x00,0x0C,0x04,0x04,0x04,0x0E}, // 'i'
+        {0x02,0x00,0x06,0x02,0x02,0x12,0x0C}, // 'j'
+        {0x10,0x10,0x12,0x14,0x18,0x14,0x12}, // 'k'
+        {0x0C,0x04,0x04,0x04,0x04,0x04,0x0E}, // 'l'
+        {0x00,0x00,0x1A,0x15,0x15,0x11,0x11}, // 'm'
+        {0x00,0x00,0x16,0x19,0x11,0x11,0x11}, // 'n'
+        {0x00,0x00,0x0E,0x11,0x11,0x11,0x0E}, // 'o'
+        {0x00,0x00,0x1E,0x11,0x1E,0x10,0x10}, // 'p'
+        {0x00,0x00,0x0D,0x13,0x0F,0x01,0x01}, // 'q'
+        {0x00,0x00,0x16,0x19,0x10,0x10,0x10}, // 'r'
+        {0x00,0x00,0x0E,0x10,0x0E,0x01,0x1E}, // 's'
+        {0x08,0x08,0x1E,0x08,0x08,0x09,0x06}, // 't'
+        {0x00,0x00,0x11,0x11,0x11,0x13,0x0D}, // 'u'
+        {0x00,0x00,0x11,0x11,0x11,0x0A,0x04}, // 'v'
+        {0x00,0x00,0x11,0x11,0x15,0x15,0x0A}, // 'w'
+        {0x00,0x00,0x11,0x0A,0x04,0x0A,0x11}, // 'x'
+        {0x00,0x00,0x11,0x11,0x0F,0x01,0x0E}, // 'y'
+        {0x00,0x00,0x1F,0x02,0x04,0x08,0x1F}, // 'z'
+        {0x02,0x04,0x04,0x08,0x04,0x04,0x02}, // '{'
+        {0x04,0x04,0x04,0x00,0x04,0x04,0x04}, // '|'
+        {0x08,0x04,0x04,0x02,0x04,0x04,0x08}, // '}'
+        {0x08,0x15,0x02,0x00,0x00,0x00,0x00}, // '~'
+    };
+    if (ch < 0x20 || ch > 0x7E) return kBlank;
+    return kFont[ch - 0x20];
+}
+
+static void qol_draw_text(SDL_Renderer* r, const char* text, int x, int y,
+                          int scale, Uint8 cr, Uint8 cg, Uint8 cb, Uint8 ca = 255) {
+    if (!r || !text) return;
+    SDL_SetRenderDrawColor(r, cr, cg, cb, ca);
+    int cx = x;
+    for (const unsigned char* p = reinterpret_cast<const unsigned char*>(text); *p; ++p) {
+        if (*p == '\n') {
+            cx = x;
+            y += 9 * scale;
+            continue;
+        }
+        const std::uint8_t* rows = qol_glyph_rows(*p);
+        for (int row = 0; row < 7; ++row) {
+            const std::uint8_t bits = rows[row];
+            int col = 0;
+            while (col < 5) {
+                if (!(bits & (1u << (4 - col)))) {
+                    ++col;
+                    continue;
+                }
+                const int start = col;
+                while (col < 5 && (bits & (1u << (4 - col)))) ++col;
+                SDL_Rect rc{cx + start * scale, y + row * scale,
+                            (col - start) * scale, scale};
+                SDL_RenderFillRect(r, &rc);
+            }
+        }
+        cx += 6 * scale;
+    }
+}
+
+static int qol_text_width(const char* text, int scale) {
+    if (!text) return 0;
+    const int n = static_cast<int>(std::strlen(text));
+    return n > 0 ? (n * 6 - 1) * scale : 0;
+}
+
+static const char* qol_ws_label(int wide) {
+    return wide ? "16:9 Wide (284x160)" : "Classic GBA (3:2)";
+}
+
+static const char* qol_filter_label(int f) {
+    switch (f) {
+        case MKSC_FILTER_BILINEAR: return "Bilinear (Smooth)";
+        case MKSC_FILTER_SHARP4X:  return "Sharp 4x";
+        case MKSC_FILTER_LCD_GRID: return "GBA LCD Grid";
+        default:                   return "Nearest (Sharp)";
+    }
+}
+
+static const char* qol_color_label(int c) {
+    switch (c) {
+        case MKSC_COLOR_BACKLIT:  return "Backlit";
+        case MKSC_COLOR_FRONTLIT: return "Frontlit";
+        case MKSC_COLOR_UNLIT:    return "Unlit";
+        case MKSC_COLOR_CLASSIC:  return "Classic";
+        default:                  return "Off (Raw)";
+    }
+}
+
+static const char* qol_boost_label(int b_mode) {
+    switch (b_mode) {
+        case 1:  return "FastLoad";
+        case 2:  return "Type2";
+        default: return "Normal";
+    }
+}
+
+static void draw_qol_toast(Backend* b, int dw, int dh) {
+    if (!b || b->qol_toast[0] == '\0') return;
+    if (SDL_TICKS_PASSED(SDL_GetTicks(), b->qol_toast_until)) {
+        b->qol_toast[0] = '\0';
+        return;
+    }
+    const int scale = (dh >= 900) ? 3 : 2;
+    const int tw = qol_text_width(b->qol_toast, scale);
+    const int pad_x = 18;
+    const int pad_y = 10;
+    const int bw = tw + pad_x * 2;
+    const int bh = 7 * scale + pad_y * 2;
+    const int bx = (dw - bw) / 2;
+    const int by = dh - bh - 36;
+    SDL_SetRenderDrawBlendMode(b->renderer, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(b->renderer, 16, 22, 42, 228);
+    SDL_Rect bg{bx, by, bw, bh};
+    SDL_RenderFillRect(b->renderer, &bg);
+    SDL_SetRenderDrawColor(b->renderer, 255, 206, 56, 255);
+    SDL_RenderDrawRect(b->renderer, &bg);
+    qol_draw_text(b->renderer, b->qol_toast, bx + pad_x, by + pad_y,
+                  scale, 255, 232, 120);
+}
+
+static void draw_qol_overlay(Backend* b, int dw, int dh) {
+    if (!b || !b->qol_open) return;
+    SDL_SetRenderDrawBlendMode(b->renderer, SDL_BLENDMODE_BLEND);
+
+    // Dim backdrop
+    SDL_SetRenderDrawColor(b->renderer, 6, 10, 22, 178);
+    SDL_Rect full{0, 0, dw, dh};
+    SDL_RenderFillRect(b->renderer, &full);
+
+    const int scale = (dh >= 900) ? 3 : 2;
+    const int pw = std::min(dw - 64, 440 * scale);
+    const int row_h = 18 * scale;
+    const int hdr_h = 34 * scale;
+    const int ftr_h = 24 * scale;
+    const int item_count = (b->qol_page == 0) ? 12 : 6;
+    const int ph = hdr_h + item_count * row_h + ftr_h + 10 * scale;
+    const int px = (dw - pw) / 2;
+    const int py = (dh - ph) / 2;
+
+    // Panel body & racing-navy / gold border
+    SDL_SetRenderDrawColor(b->renderer, 16, 22, 44, 242);
+    SDL_Rect panel{px, py, pw, ph};
+    SDL_RenderFillRect(b->renderer, &panel);
+    SDL_SetRenderDrawColor(b->renderer, 245, 196, 48, 255);
+    SDL_RenderDrawRect(b->renderer, &panel);
+    SDL_Rect inner_border{px + 2, py + 2, pw - 4, ph - 4};
+    SDL_SetRenderDrawColor(b->renderer, 64, 122, 210, 255);
+    SDL_RenderDrawRect(b->renderer, &inner_border);
+
+    // Header band
+    SDL_SetRenderDrawColor(b->renderer, 26, 46, 98, 255);
+    SDL_Rect hdr{px + 3, py + 3, pw - 6, hdr_h - 4};
+    SDL_RenderFillRect(b->renderer, &hdr);
+    const char* title = (b->qol_page == 0)
+        ? "MARIO KART: SUPER CIRCUIT NX  -  QUICK MENU"
+        : "SAVE STATES  (sdmc:/switch/mksc_nx/savestates)";
+    qol_draw_text(b->renderer, title, px + 14 * scale, py + 8 * scale,
+                  scale, 255, 214, 70);
+    qol_draw_text(b->renderer, "Hold [-] to Resume   |   v0.3.0",
+                  px + 14 * scale, py + 20 * scale, scale, 196, 218, 255);
+
+    const int list_y = py + hdr_h + 4 * scale;
+    const int val_right = px + pw - 16 * scale;
+
+    if (b->qol_page == 0) {
+        const char* labels[12] = {
+            "Save States...",
+            "Aspect / Widescreen",
+            "Video Filter",
+            "60 FPS Track Interp.",
+            "GBA Color Correction",
+            "FPS / Frame-time HUD",
+            "VSync",
+            "Audio",
+            "CPU Boost",
+            "Resume Game",
+            "Reset Game",
+            "Exit to Homebrew Menu"
+        };
+        char val_buf[64];
+        for (int i = 0; i < 12; ++i) {
+            const int ry = list_y + i * row_h;
+            const bool sel = (i == b->qol_cursor);
+            if (sel) {
+                SDL_SetRenderDrawColor(b->renderer, 42, 76, 152, 235);
+                SDL_Rect hi{px + 8 * scale, ry, pw - 16 * scale, row_h - 2};
+                SDL_RenderFillRect(b->renderer, &hi);
+                SDL_SetRenderDrawColor(b->renderer, 255, 208, 64, 255);
+                SDL_RenderDrawRect(b->renderer, &hi);
+            }
+            const Uint8 lr = sel ? 255 : 230;
+            const Uint8 lg = sel ? 236 : 228;
+            const Uint8 lb = sel ? 140 : 238;
+            qol_draw_text(b->renderer, sel ? ">" : " ", px + 12 * scale, ry + 5 * scale,
+                          scale, 255, 208, 64);
+            qol_draw_text(b->renderer, labels[i], px + 22 * scale, ry + 5 * scale,
+                          scale, lr, lg, lb);
+
+            val_buf[0] = '\0';
+            switch (i) {
+                case 0: std::snprintf(val_buf, sizeof(val_buf), "5 Slots  [A]"); break;
+                case 1: std::snprintf(val_buf, sizeof(val_buf), "< %s >", qol_ws_label(g_mksc_qol.widescreen)); break;
+                case 2: std::snprintf(val_buf, sizeof(val_buf), "< %s >", qol_filter_label(g_mksc_qol.video_filter)); break;
+                case 3: std::snprintf(val_buf, sizeof(val_buf), "< %s >", g_mksc_qol.fps60 ? "On" : "Off"); break;
+                case 4: std::snprintf(val_buf, sizeof(val_buf), "< %s >", qol_color_label(g_mksc_qol.color_mode)); break;
+                case 5: std::snprintf(val_buf, sizeof(val_buf), "< %s >", g_mksc_qol.show_fps ? "On" : "Off"); break;
+                case 6: std::snprintf(val_buf, sizeof(val_buf), "< %s >", g_mksc_qol.vsync ? "On" : "Off"); break;
+                case 7: std::snprintf(val_buf, sizeof(val_buf), "< %s >", g_mksc_qol.audio_enabled ? "On" : "Off"); break;
+                case 8: std::snprintf(val_buf, sizeof(val_buf), "< %s >", qol_boost_label(g_mksc_qol.cpu_boost)); break;
+                case 9: case 10: case 11: std::snprintf(val_buf, sizeof(val_buf), "[A]"); break;
+            }
+            if (val_buf[0] != '\0') {
+                const int vw = qol_text_width(val_buf, scale);
+                const Uint8 vr = (i >= 1 && i <= 8) ? (sel ? 140 : 110) : 255;
+                const Uint8 vg = (i >= 1 && i <= 8) ? (sel ? 255 : 215) : 215;
+                const Uint8 vb = (i >= 1 && i <= 8) ? (sel ? 210 : 185) : 100;
+                qol_draw_text(b->renderer, val_buf, val_right - vw, ry + 5 * scale,
+                              scale, vr, vg, vb);
+            }
+        }
+        qol_draw_text(b->renderer, "Up/Down: Select   Left/Right: Change   A: Confirm   B: Resume",
+                      px + 14 * scale, py + ph - ftr_h + 6 * scale, scale, 180, 195, 225);
+    } else {
+        for (int i = 0; i < 6; ++i) {
+            const int ry = list_y + i * row_h;
+            const bool sel = (i == b->qol_cursor);
+            if (sel) {
+                SDL_SetRenderDrawColor(b->renderer, 42, 76, 152, 235);
+                SDL_Rect hi{px + 8 * scale, ry, pw - 16 * scale, row_h - 2};
+                SDL_RenderFillRect(b->renderer, &hi);
+                SDL_SetRenderDrawColor(b->renderer, 255, 208, 64, 255);
+                SDL_RenderDrawRect(b->renderer, &hi);
+            }
+            qol_draw_text(b->renderer, sel ? ">" : " ", px + 12 * scale, ry + 5 * scale,
+                          scale, 255, 208, 64);
+            if (i < 5) {
+                char row_lbl[64];
+                std::snprintf(row_lbl, sizeof(row_lbl), "Slot %d   [%s]",
+                              i + 1, b->qol_slot_time[i]);
+                qol_draw_text(b->renderer, row_lbl, px + 22 * scale, ry + 5 * scale,
+                              scale, b->qol_slot_exists[i] ? 245 : 160,
+                              b->qol_slot_exists[i] ? 245 : 160,
+                              b->qol_slot_exists[i] ? 255 : 175);
+                const char* act = (b->qol_slot_mode == 0) ? "< SAVE > [A]" : "< LOAD > [A]";
+                const int vw = qol_text_width(act, scale);
+                qol_draw_text(b->renderer, act, val_right - vw, ry + 5 * scale,
+                              scale, (b->qol_slot_mode == 0) ? 255 : 130,
+                              (b->qol_slot_mode == 0) ? 210 : 255,
+                              (b->qol_slot_mode == 0) ? 90 : 170);
+            } else {
+                qol_draw_text(b->renderer, "Back", px + 22 * scale, ry + 5 * scale,
+                              scale, 240, 236, 250);
+            }
+        }
+        qol_draw_text(b->renderer, "Left/Right: Save or Load   A: Execute   B: Back",
+                      px + 14 * scale, py + ph - ftr_h + 6 * scale, scale, 180, 195, 225);
+    }
+}
+#endif
+
+#if defined(__SWITCH__)
 constexpr Uint32 kStreamTextureFormat = SDL_PIXELFORMAT_ABGR8888;
 
 static void convert_rgb24_to_rgba32(const uint8_t* src,
@@ -1494,6 +2139,27 @@ static void upload_rgb24_texture(Backend* b,
 #endif
 
 static void draw_fps_overlay(Backend* b, const PresentationLayout& layout) {
+#if defined(__SWITCH__)
+    if (!g_mksc_qol.show_fps || b->fps_value <= 0.0 ||
+        layout.width <= 0 || layout.height <= 0) return;
+    char text[48];
+    std::snprintf(text, sizeof(text), "%.1f FPS  %.1f ms",
+                  b->fps_value, b->qol_frame_ms);
+    const int scale = 2;
+    const int tw = qol_text_width(text, scale);
+    const int pad_x = 8;
+    const int pad_y = 5;
+    const int x0 = layout.x + 10;
+    const int y0 = layout.y + 10;
+    SDL_SetRenderDrawBlendMode(b->renderer, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(b->renderer, 12, 16, 30, 196);
+    SDL_Rect bg{x0, y0, tw + pad_x * 2, 7 * scale + pad_y * 2};
+    SDL_RenderFillRect(b->renderer, &bg);
+    SDL_SetRenderDrawColor(b->renderer, 120, 255, 160, 255);
+    SDL_RenderDrawRect(b->renderer, &bg);
+    qol_draw_text(b->renderer, text, x0 + pad_x, y0 + pad_y,
+                  scale, 150, 255, 175);
+#else
     if (!b->fps_readout || b->fps_value <= 0.0 || layout.width <= 0 ||
         layout.height <= 0) return;
     char text[32];
@@ -1535,6 +2201,7 @@ static void draw_fps_overlay(Backend* b, const PresentationLayout& layout) {
         }
         x += cell;
     }
+#endif
 }
 
 // The presentation rectangle every present path uses, so touch mapping and
@@ -1605,8 +2272,26 @@ PresentationLayout current_presentation_layout(Backend* b, int* out_w, int* out_
         // texture and destination cannot disagree on backends whose renderer
         // output stays pinned to the original streaming target.
 #if defined(__SWITCH__)
-        if (SDL_GetRendererOutputSize(b->renderer, &drawable_w, &drawable_h) != 0) {
+        if (SDL_GetRendererOutputSize(b->renderer, &drawable_w, &drawable_h) != 0 ||
+            drawable_w <= 0 || drawable_h <= 0) {
             SDL_GetWindowSize(b->window, &drawable_w, &drawable_h);
+        }
+        if (drawable_w <= 0 || drawable_h <= 0) {
+            drawable_w = 1280;
+            drawable_h = 720;
+        }
+        const int view_w = (g_mksc_qol.widescreen == MKSC_WS_CLASSIC) ? 240 : b->base_w;
+        const int view_h = b->base_h;
+        if (view_w == 284 && view_h == 160 &&
+            drawable_w * 9 == drawable_h * 16) {
+            // 284x160 is the GBA 16:9 widescreen width (160 * 16 / 9 = 284.44);
+            // fill the Switch's 1280x720 (or 1920x1080) 16:9 viewport cleanly
+            // without 1px side bars.
+            layout = {0, 0, drawable_w, drawable_h, 0};
+        } else {
+            layout = b->resize_driven_view
+                ? compute_adaptive_presentation_layout(drawable_w, drawable_h, view_w, view_h)
+                : compute_presentation_layout(drawable_w, drawable_h, view_w, view_h);
         }
 #else
         if (b->resize_driven_view) {
@@ -1615,10 +2300,10 @@ PresentationLayout current_presentation_layout(Backend* b, int* out_w, int* out_
                        b->renderer, &drawable_w, &drawable_h) != 0) {
             SDL_GetWindowSize(b->window, &drawable_w, &drawable_h);
         }
-#endif
         layout = b->resize_driven_view
             ? compute_adaptive_presentation_layout(drawable_w, drawable_h, b->base_w, b->base_h)
             : compute_presentation_layout(drawable_w, drawable_h, b->base_w, b->base_h);
+#endif
     }
 #endif
     // Portrait top anchoring (per-present game request): the image hugs the
@@ -1867,7 +2552,13 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
     if (orientation_policy_ == 2) window_flags |= SDL_WINDOW_RESIZABLE;
     window_flags |= SDL_WINDOW_FULLSCREEN_DESKTOP | SDL_WINDOW_BORDERLESS;
 #endif
-    b->window = SDL_CreateWindow(title ? title : "gbarecomp",
+#if defined(__SWITCH__)
+    const char* effective_title = "Mario Kart: Super Circuit NX";
+#else
+    const char* effective_title = title ? title : "gbarecomp";
+#endif
+    b->title = effective_title;
+    b->window = SDL_CreateWindow(effective_title,
                                  SDL_WINDOWPOS_CENTERED,
                                  SDL_WINDOWPOS_CENTERED,
                                  win_w, win_h,
@@ -1922,7 +2613,7 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
     const bool vsync_disabled =
         no_vsync_env && *no_vsync_env && *no_vsync_env != '0';
 #if defined(__SWITCH__)
-    const bool want_vsync = false; // Ne jamais bloquer Core 1 sur le scanout HDMI
+    const bool want_vsync = (g_mksc_qol.vsync != 0); // Audio-paced 60 FPS by default
 #else
     const bool want_vsync = vsync_requested && !vsync_disabled;
 #endif
@@ -2095,6 +2786,9 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
     if (!b->color_lut->is_passthrough())
         b->graded_fb.resize(static_cast<std::size_t>(base_w) * base_h * 3);
 
+#if defined(__SWITCH__)
+    qol_sync_all_settings(b);
+#endif
     impl_ = b;
     open_ = true;
     g_haptic_window = this;
@@ -2278,6 +2972,9 @@ void HostWindow::close() {
 #if defined(GBARECOMP_RUNTIME_UI)
     runtime_imgui_shutdown(b);
 #endif
+#if defined(__SWITCH__)
+    destroy_lcd_grid_texture(b);
+#endif
     destroy_sharp_texture(b);
     if (b->texture)   SDL_DestroyTexture(b->texture);
     if (b->renderer)  SDL_DestroyRenderer(b->renderer);
@@ -2370,6 +3067,10 @@ void HostWindow::present(const uint8_t* rgb888) { present(rgb888, 0, 0); }
 void HostWindow::present(const uint8_t* rgb888, unsigned sampled_w, unsigned sampled_h) {
     if (!open_ || !impl_ || !rgb888) return;
     auto* b = static_cast<Backend*>(impl_);
+#if defined(__SWITCH__)
+    qol_finalize_pending_savestate_ops(b);
+    qol_sync_all_settings(b);
+#endif
     if (!sampled_w) sampled_w = unsigned(b->base_w);
     if (!sampled_h) sampled_h = unsigned(b->base_h);
     int texture_w = 0, texture_h = 0;
@@ -2427,7 +3128,11 @@ void HostWindow::present(const uint8_t* rgb888, unsigned sampled_w, unsigned sam
         rgb888 = b->graded_fb.data();
     }
     upload_rgb24_texture(b, rgb888, texture_w, texture_h);
+#if defined(__SWITCH__)
+    SDL_SetRenderDrawColor(b->renderer, 0, 0, 0, 255);
+#else
     SDL_SetRenderDrawColor(b->renderer, 7, 11, 20, 255);
+#endif
     SDL_RenderClear(b->renderer);
 #if defined(__ANDROID__)
     if (!b->insets_from_env && g_android_insets_known.load()) {
@@ -2496,6 +3201,42 @@ void HostWindow::present(const uint8_t* rgb888, unsigned sampled_w, unsigned sam
 #if defined(__ANDROID__)
     const SDL_Rect destination{layout.x, layout.y, layout.width, layout.height};
     SDL_RenderCopy(b->renderer, b->texture, nullptr, &destination);
+#elif defined(__SWITCH__)
+    if (layout.width > 0 && layout.height > 0) {
+        const SDL_Rect destination = {
+            layout.x, layout.y, layout.width, layout.height};
+        const bool classic_crop =
+            (g_mksc_qol.widescreen == MKSC_WS_CLASSIC) &&
+            b->base_w >= 284;
+        const int crop_left = classic_crop ? ((b->base_w - 240) / 2) : 0;
+        const SDL_Rect src_rect = classic_crop
+            ? SDL_Rect{(crop_left * texture_w) / b->base_w, 0,
+                       (240 * texture_w) / b->base_w, texture_h}
+            : SDL_Rect{0, 0, texture_w, texture_h};
+
+        bool sharp_presented = false;
+        const bool want_sharp_pass =
+            (g_mksc_qol.video_filter == MKSC_FILTER_SHARP4X ||
+             g_mksc_qol.video_filter == MKSC_FILTER_LCD_GRID);
+        if (want_sharp_pass &&
+            ensure_sharp_texture_dims(b, src_rect.w * 4, src_rect.h * 4) &&
+            SDL_SetRenderTarget(b->renderer, b->sharp_texture) == 0) {
+            bool ok = (SDL_RenderCopy(b->renderer, b->texture, &src_rect, nullptr) == 0);
+            if (ok && g_mksc_qol.video_filter == MKSC_FILTER_LCD_GRID &&
+                ensure_lcd_grid_texture(b, src_rect.w, src_rect.h)) {
+                ok = (SDL_RenderCopy(b->renderer, b->lcd_grid_texture, nullptr, nullptr) == 0);
+            }
+            const bool restored = (SDL_SetRenderTarget(b->renderer, nullptr) == 0);
+            if (ok && restored) {
+                sharp_presented =
+                    (SDL_RenderCopy(b->renderer, b->sharp_texture, nullptr, &destination) == 0);
+            }
+        }
+        if (!sharp_presented) {
+            SDL_SetRenderTarget(b->renderer, nullptr);
+            SDL_RenderCopy(b->renderer, b->texture, &src_rect, &destination);
+        }
+    }
 #else
     if (!b->expanded_view && !b->resize_driven_view) {
         SDL_RenderCopy(b->renderer, b->texture, nullptr, nullptr);
@@ -2535,6 +3276,10 @@ void HostWindow::present(const uint8_t* rgb888, unsigned sampled_w, unsigned sam
 #endif
     render_host_layers(b);
     draw_fps_overlay(b, layout);
+#if defined(__SWITCH__)
+    draw_qol_overlay(b, drawable_w, drawable_h);
+    draw_qol_toast(b, drawable_w, drawable_h);
+#endif
     // MC-WS-002: time the present itself (vsync blocks here — or doesn't)
     // and stamp the DWM refresh counter into the cadence ring.
     if (b->cadence.active()) {
@@ -2545,6 +3290,29 @@ void HostWindow::present(const uint8_t* rgb888, unsigned sampled_w, unsigned sam
         SDL_RenderPresent(b->renderer);
     }
 
+#if defined(__SWITCH__)
+    {
+        const Uint64 qpc_now = SDL_GetPerformanceCounter();
+        if (b->qol_last_present_ticks != 0 && !b->qol_open) {
+            const double inst_ms =
+                static_cast<double>(qpc_now - b->qol_last_present_ticks) * 1000.0 /
+                static_cast<double>(SDL_GetPerformanceFrequency());
+            if (inst_ms > 0.1 && inst_ms < 250.0) {
+                b->qol_frame_ms = b->qol_frame_ms * 0.85 + inst_ms * 0.15;
+            }
+        }
+        b->qol_last_present_ticks = qpc_now;
+        ++b->fps_presents;
+        const Uint32 now = SDL_GetTicks();
+        if (b->fps_window_start == 0) b->fps_window_start = now;
+        const Uint32 span = now - b->fps_window_start;
+        if (span >= 500) {
+            b->fps_value = b->fps_presents * 1000.0 / span;
+            b->fps_window_start = now;
+            b->fps_presents = 0;
+        }
+    }
+#else
     // FPS readout (DisplayPerf hotkey): presents/sec, refreshed twice a
     // second in the title bar; the base title is restored when toggled off.
     if (b->fps_readout) {
@@ -2565,6 +3333,7 @@ void HostWindow::present(const uint8_t* rgb888, unsigned sampled_w, unsigned sam
             b->fps_presents = 0;
         }
     }
+#endif
 }
 
 void HostWindow::load_input_config(const char* dir,
@@ -3219,7 +3988,9 @@ HostWindow::Events HostWindow::pump() {
         } pad_map[] = {
             {0, SDL_CONTROLLER_BUTTON_B},
             {1, SDL_CONTROLLER_BUTTON_A},
+#if !defined(__SWITCH__)
             {2, SDL_CONTROLLER_BUTTON_BACK},
+#endif
             {3, SDL_CONTROLLER_BUTTON_START},
             {4, SDL_CONTROLLER_BUTTON_DPAD_RIGHT},
             {5, SDL_CONTROLLER_BUTTON_DPAD_LEFT},
@@ -3246,19 +4017,238 @@ HostWindow::Events HostWindow::pump() {
 
 #if defined(__SWITCH__)
     if (b->controller && SDL_GameControllerGetAttached(b->controller)) {
-        // Map Left Stick to D-Pad (deadzone 8000)
-        Sint16 left_x = SDL_GameControllerGetAxis(b->controller, SDL_CONTROLLER_AXIS_LEFTX);
-        Sint16 left_y = SDL_GameControllerGetAxis(b->controller, SDL_CONTROLLER_AXIS_LEFTY);
+        const Uint32 now = SDL_GetTicks();
+        const bool minus_now = SDL_GameControllerGetButton(b->controller, SDL_CONTROLLER_BUTTON_BACK) != 0;
+        const bool plus_now  = SDL_GameControllerGetButton(b->controller, SDL_CONTROLLER_BUTTON_START) != 0;
 
-        if (left_x < -8000) keys &= static_cast<uint16_t>(~(1u << 5)); // Left
-        if (left_x > 8000)  keys &= static_cast<uint16_t>(~(1u << 4)); // Right
-        if (left_y < -8000) keys &= static_cast<uint16_t>(~(1u << 6)); // Up
-        if (left_y > 8000)  keys &= static_cast<uint16_t>(~(1u << 7)); // Down
-
-        // Plus + Minus Combo to exit
-        if (SDL_GameControllerGetButton(b->controller, SDL_CONTROLLER_BUTTON_START) &&
-            SDL_GameControllerGetButton(b->controller, SDL_CONTROLLER_BUTTON_BACK)) {
+        // Plus + Minus Combo to exit cleanly
+        if (plus_now && minus_now) {
+            b->qol_minus_triggered = true;
             ev.quit = true;
+        } else if (minus_now) {
+            if (!b->qol_minus_down) {
+                b->qol_minus_down = true;
+                b->qol_minus_triggered = false;
+                b->qol_minus_down_ms = now;
+            } else if (!b->qol_minus_triggered && (now - b->qol_minus_down_ms) >= 450u) {
+                b->qol_minus_triggered = true;
+                b->qol_open = !b->qol_open;
+                ev.toggle_pause = true;
+                if (b->qol_open) {
+                    b->qol_page = 0;
+                    b->qol_nav_up_held = true;
+                    b->qol_nav_down_held = true;
+                    b->qol_nav_left_held = true;
+                    b->qol_nav_right_held = true;
+                    b->qol_confirm_held = true;
+                    b->qol_back_held = true;
+                    qol_refresh_slots(b);
+                } else if (g_mksc_qol.save_config_fn) {
+                    g_mksc_qol.save_config_fn();
+                }
+                qol_apply_audio(b);
+            }
+        } else {
+            if (b->qol_minus_down && !b->qol_minus_triggered && !b->qol_open) {
+                b->qol_select_pulse_frames = 3;
+            }
+            b->qol_minus_down = false;
+            b->qol_minus_triggered = false;
+        }
+
+        if (!b->qol_open) {
+            // Map Left Stick to D-Pad (deadzone 8000)
+            Sint16 left_x = SDL_GameControllerGetAxis(b->controller, SDL_CONTROLLER_AXIS_LEFTX);
+            Sint16 left_y = SDL_GameControllerGetAxis(b->controller, SDL_CONTROLLER_AXIS_LEFTY);
+
+            if (left_x < -8000) keys &= static_cast<uint16_t>(~(1u << 5)); // Left
+            if (left_x > 8000)  keys &= static_cast<uint16_t>(~(1u << 4)); // Right
+            if (left_y < -8000) keys &= static_cast<uint16_t>(~(1u << 6)); // Up
+            if (left_y > 8000)  keys &= static_cast<uint16_t>(~(1u << 7)); // Down
+
+            if (b->qol_select_pulse_frames > 0) {
+                keys &= static_cast<uint16_t>(~(1u << 2));
+                --b->qol_select_pulse_frames;
+            }
+        } else {
+            keys = 0x03FFu;
+            const Sint16 lx = SDL_GameControllerGetAxis(b->controller, SDL_CONTROLLER_AXIS_LEFTX);
+            const Sint16 ly = SDL_GameControllerGetAxis(b->controller, SDL_CONTROLLER_AXIS_LEFTY);
+            const bool up    = SDL_GameControllerGetButton(b->controller, SDL_CONTROLLER_BUTTON_DPAD_UP) || ly < -14000;
+            const bool down  = SDL_GameControllerGetButton(b->controller, SDL_CONTROLLER_BUTTON_DPAD_DOWN) || ly > 14000;
+            const bool left  = SDL_GameControllerGetButton(b->controller, SDL_CONTROLLER_BUTTON_DPAD_LEFT) || lx < -14000;
+            const bool right = SDL_GameControllerGetButton(b->controller, SDL_CONTROLLER_BUTTON_DPAD_RIGHT) || lx > 14000;
+            const bool btn_a = SDL_GameControllerGetButton(b->controller, SDL_CONTROLLER_BUTTON_B) != 0; // Physical Switch A
+            const bool btn_b = SDL_GameControllerGetButton(b->controller, SDL_CONTROLLER_BUTTON_A) != 0; // Physical Switch B
+
+            const int max_rows = (b->qol_page == 0) ? 12 : 6;
+            auto repeat_trigger = [&](bool cur, bool& held) -> bool {
+                if (!cur) {
+                    held = false;
+                    return false;
+                }
+                if (!held) {
+                    held = true;
+                    b->qol_nav_repeat_at = now + 300u;
+                    return true;
+                }
+                if (SDL_TICKS_PASSED(now, b->qol_nav_repeat_at)) {
+                    b->qol_nav_repeat_at = now + 120u;
+                    return true;
+                }
+                return false;
+            };
+
+            if (repeat_trigger(up, b->qol_nav_up_held)) {
+                b->qol_cursor = (b->qol_cursor + max_rows - 1) % max_rows;
+            }
+            if (repeat_trigger(down, b->qol_nav_down_held)) {
+                b->qol_cursor = (b->qol_cursor + 1) % max_rows;
+            }
+            const int lr_delta =
+                (repeat_trigger(right, b->qol_nav_right_held) ? 1 : 0) -
+                (repeat_trigger(left, b->qol_nav_left_held) ? 1 : 0);
+
+            const bool a_edge = btn_a && !b->qol_confirm_held;
+            const bool b_edge = btn_b && !b->qol_back_held;
+            b->qol_confirm_held = btn_a;
+            b->qol_back_held = btn_b;
+
+            if (b->qol_page == 0) {
+                auto wrap = [](int v, int delta, int count) {
+                    return (v + delta + count) % count;
+                };
+                const int delta = (lr_delta != 0) ? lr_delta : (a_edge ? 1 : 0);
+                bool config_changed = false;
+                switch (b->qol_cursor) {
+                    case 0: // Save States...
+                        if (a_edge) {
+                            b->qol_page = 1;
+                            b->qol_cursor = 0;
+                            qol_refresh_slots(b);
+                        }
+                        break;
+                    case 1: // Aspect / Widescreen
+                        if (delta != 0) {
+                            g_mksc_qol.widescreen = g_mksc_qol.widescreen ? 0 : 1;
+                            config_changed = true;
+                        }
+                        break;
+                    case 2: // Video Filter
+                        if (delta != 0) {
+                            g_mksc_qol.video_filter = wrap(g_mksc_qol.video_filter, delta, 4);
+                            qol_apply_video_filter(b);
+                            config_changed = true;
+                        }
+                        break;
+                    case 3: // 60 FPS Track Interpolation
+                        if (delta != 0) {
+                            g_mksc_qol.fps60 = g_mksc_qol.fps60 ? 0 : 1;
+                            qol_apply_mods(b);
+                            config_changed = true;
+                        }
+                        break;
+                    case 4: // GBA Color Correction
+                        if (delta != 0) {
+                            g_mksc_qol.color_mode = wrap(g_mksc_qol.color_mode, delta, 5);
+                            qol_apply_color_mode(b);
+                            config_changed = true;
+                        }
+                        break;
+                    case 5: // FPS / Frame-time HUD
+                        if (delta != 0) {
+                            g_mksc_qol.show_fps = g_mksc_qol.show_fps ? 0 : 1;
+                            b->fps_readout = (g_mksc_qol.show_fps != 0);
+                            config_changed = true;
+                        }
+                        break;
+                    case 6: // VSync
+                        if (delta != 0) {
+                            g_mksc_qol.vsync = g_mksc_qol.vsync ? 0 : 1;
+                            qol_apply_vsync(b);
+                            config_changed = true;
+                        }
+                        break;
+                    case 7: // Audio
+                        if (delta != 0) {
+                            g_mksc_qol.audio_enabled = g_mksc_qol.audio_enabled ? 0 : 1;
+                            config_changed = true;
+                        }
+                        break;
+                    case 8: // CPU Boost
+                        if (delta != 0) {
+                            g_mksc_qol.cpu_boost = wrap(g_mksc_qol.cpu_boost, delta, 3);
+                            qol_apply_cpu_boost(b);
+                            config_changed = true;
+                        }
+                        break;
+                    case 9: // Resume Game
+                        if (a_edge) {
+                            b->qol_open = false;
+                            ev.toggle_pause = true;
+                            qol_apply_audio(b);
+                            if (g_mksc_qol.save_config_fn) g_mksc_qol.save_config_fn();
+                        }
+                        break;
+                    case 10: // Reset Game
+                        if (a_edge) {
+                            if (g_mksc_qol.save_config_fn) g_mksc_qol.save_config_fn();
+                            g_mksc_qol.reset_requested = 1;
+                            b->qol_open = false;
+                            ev.quit = true;
+                        }
+                        break;
+                    case 11: // Exit to Homebrew Menu
+                        if (a_edge) {
+                            if (g_mksc_qol.save_config_fn) g_mksc_qol.save_config_fn();
+                            g_mksc_qol.reset_requested = 0;
+                            b->qol_open = false;
+                            ev.quit = true;
+                        }
+                        break;
+                }
+                if (config_changed && g_mksc_qol.save_config_fn) {
+                    g_mksc_qol.save_config_fn();
+                }
+                if (b_edge && b->qol_open) {
+                    if (g_mksc_qol.save_config_fn) g_mksc_qol.save_config_fn();
+                    b->qol_open = false;
+                    ev.toggle_pause = true;
+                    qol_apply_audio(b);
+                }
+            } else {
+                if (lr_delta != 0 && b->qol_cursor < 5) {
+                    b->qol_slot_mode = (b->qol_slot_mode == 0) ? 1 : 0;
+                }
+                if (b_edge || (a_edge && b->qol_cursor == 5)) {
+                    b->qol_page = 0;
+                    b->qol_cursor = 0;
+                } else if (a_edge && b->qol_cursor < 5) {
+                    const int slot = b->qol_cursor + 1;
+                    std::string final_p, runtime_p;
+                    qol_slot_paths(slot, final_p, runtime_p);
+                    if (b->qol_slot_mode == 0) {
+                        qol_ensure_savestate_dir();
+                        std::remove(runtime_p.c_str());
+                        b->qol_pending_save_slot = slot;
+                        ev.save_slot = slot;
+                    } else {
+                        if (!b->qol_slot_exists[slot - 1] ||
+                            !qol_copy_file(final_p.c_str(), runtime_p.c_str())) {
+                            char msg[48];
+                            std::snprintf(msg, sizeof(msg), "Slot %d Empty", slot);
+                            qol_set_toast(b, msg);
+                        } else {
+                            b->qol_pending_load_slot = slot;
+                            ev.load_slot = slot;
+                            b->qol_open = false;
+                            b->qol_page = 0;
+                            ev.toggle_pause = true;
+                            qol_apply_audio(b);
+                        }
+                    }
+                }
+            }
         }
     }
 #endif
